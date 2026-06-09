@@ -7,7 +7,7 @@
 ```
 .
 ├── README.md
-├── bash/
+├── Shell/
 │   ├── realm.sh    # Realm 端口转发管理面板
 │   └── snell.sh    # Snell Server 管理工具
 ├── python/         # Python 脚本
@@ -18,13 +18,13 @@
 
 | 目录 | 说明 |
 |------|------|
-| `bash/` | Bash / Shell 脚本 |
+| `Shell/` | Shell 脚本 |
 | `python/` | Python 脚本与工具 |
 | `tools/` | 独立工具与辅助程序 |
 
 ---
 
-## bash/realm.sh — Realm 端口转发管理面板
+## Shell/realm.sh — Realm 端口转发管理面板
 
 适用于 **Alpine Linux / OpenRC** 的 [Realm](https://github.com/zhboner/realm) 端口转发交互式管理面板（POSIX `sh`）。
 
@@ -40,14 +40,14 @@
 ### 一键安装 / 运行（需 root）
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/bash/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/Shell/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 按菜单提示选择 `0–6` 即可操作。
 
 ---
 
-## bash/snell.sh — Snell Server 管理工具
+## Shell/snell.sh — Snell Server 管理工具
 
 适用于 **Alpine Linux** 的 [Snell](https://github.com/surge-networks/snell) 代理服务端交互式管理工具（`ash`）。
 
@@ -63,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/bash/realm.sh -o
 ### 一键安装 / 运行（需 root）
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/bash/snell.sh -o snell.sh && chmod +x snell.sh && ./snell.sh
+curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/Shell/snell.sh -o snell.sh && chmod +x snell.sh && ./snell.sh
 ```
 
 按菜单提示操作即可。

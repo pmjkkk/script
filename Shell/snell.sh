@@ -291,7 +291,7 @@ download_and_extract() {
     info "下载 Snell ${ver} ..."
 
     # busybox wget 不支持 --show-progress；先探测再决定参数
-    if wget --help 2>&1 | grep -q '\-\-show-progress'; then
+    if wget --help 2>&1 | grep -qF '--show-progress'; then
         wget -q --show-progress "$url" -O "$zip" \
             || { rm -f "$zip"; die "下载失败，请检查网络"; }
     else

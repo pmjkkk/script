@@ -9,8 +9,7 @@
 ├── README.md
 ├── Shell/
 │   ├── proxy.sh    # Snell & AnyTLS 统一管理工具
-│   ├── realm.sh    # Realm 端口转发管理面板
-│   └── snell.sh    # Snell Server 管理工具
+│   └── realm.sh    # Realm 端口转发管理面板
 ├── python/         # Python 脚本
 └── tools/          # 独立工具与实用程序
 ```
@@ -45,29 +44,6 @@ curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/Shell/realm.sh -
 ```
 
 按菜单提示选择 `0–6` 即可操作。
-
----
-
-## Shell/snell.sh — Snell Server 管理工具
-
-适用于 **Alpine Linux** 的 [Snell](https://github.com/surge-networks/snell) 代理服务端交互式管理工具（`ash`）。
-
-### 功能
-
-- **安装 / 升级**：自动探测最新版本，按架构下载对应二进制；升级保留配置，自动重启
-- **配置管理**：交互式设置端口、PSK、obfs 等参数，支持一键重置
-- **服务管理**：启动 / 停止 / 重启（OpenRC），以及开机自启开关
-- **状态查看**：版本、运行状态、配置摘要（IP / 端口 / PSK / 地区）
-- **日志管理**：尾部输出、实时跟踪、一键清空
-- **一键卸载**：清理二进制、配置、服务文件及专用用户
-
-### 一键安装 / 运行（需 root）
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/Shell/snell.sh -o snell.sh && chmod +x snell.sh && ./snell.sh
-```
-
-按菜单提示操作即可。
 
 ---
 

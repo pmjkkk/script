@@ -241,6 +241,9 @@ snell_show_summary() {
     printf "  ${D}IP  ${Z}  %s\n" "$3"
     printf "  ${D}端口${Z}  %s\n" "$1"
     printf "  ${D}PSK ${Z}  %s\n" "$2"
+    hr
+    printf "  ${D}Surge 节点:${Z}\n"
+    printf "  ${C}%s = snell, %s, %s, psk = %s, version = 5, reuse = true${Z}\n" \
         "$4" "$3" "$1" "$2"
     hr; printf "\n"
 }

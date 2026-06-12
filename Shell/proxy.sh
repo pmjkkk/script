@@ -234,8 +234,9 @@ EOF
 
 snell_show_summary() {
     # $1=port $2=psk $3=ip $4=country
-    printf "\n"; hr
-    printf "${G}${B}  Snell 配置摘要${Z}\n"; hr
+    printf "\n"
+    _box "Snell" "配置摘要"
+    hr
     printf "  ${D}%-6s${Z}  %s\n" "地区" "$4"
     printf "  ${D}%-6s${Z}  %s\n" "IP"   "$3"
     printf "  ${D}%-6s${Z}  %s\n" "端口" "$1"
@@ -335,8 +336,9 @@ EOF
 
 at_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
-    printf "\n"; hr
-    printf "${G}${B}  AnyTLS 配置摘要${Z}\n"; hr
+    printf "\n"
+    _box "AnyTLS" "配置摘要"
+    hr
     printf "  ${D}%-6s${Z}  %s\n" "地区" "$4"
     printf "  ${D}%-6s${Z}  %s\n" "IP"   "$3"
     printf "  ${D}%-6s${Z}  %s\n" "端口" "$1"
@@ -398,7 +400,8 @@ snell_install() {
         printf "\n"
     fi
     steps_init 5
-    hr; printf "${B}  安装 Snell ${SNELL_VERSION}${Z}\n"; hr
+    _box "安装 Snell" "${SNELL_VERSION}"
+    hr
 
     step "检查并安装依赖"; ensure_pkgs wget unzip curl gcompat upx
     step "下载并部署二进制"; snell_download "$SNELL_VERSION"
@@ -429,7 +432,8 @@ snell_configure() {
     printf "\n"
     [ -f "$SNELL_CONF" ] || { warn "未找到配置文件，请先安装 Snell"; return; }
     snell_read_conf
-    hr; printf "${B}  当前配置${Z}\n"; hr
+    _box "Snell" "当前配置"
+    hr
     printf "  ${D}%-6s${Z}  %s\n" "端口" "$CONF_PORT"
     printf "  ${D}%-6s${Z}  %s\n" "PSK"  "$CONF_PSK"
     hr; printf "\n"
@@ -465,7 +469,8 @@ snell_update() {
     printf "\n"
     snell_is_installed || { warn "Snell 未安装"; return; }
     steps_init 4
-    hr; printf "${B}  更新 Snell${Z}\n"; hr
+    _box "更新 Snell"
+    hr
     step "探测最新版本"
     local old_ver new_ver
     old_ver=$(snell_get_version); SNELL_VERSION="$old_ver"
@@ -487,7 +492,9 @@ snell_update() {
 }
 
 snell_uninstall() {
-    printf "\n"; hr; printf "${B}  卸载 Snell${Z}\n"; hr; printf "\n"
+    printf "\n"
+    _box "卸载 Snell"
+    hr; printf "\n"
     warn "将删除二进制、配置目录及系统用户，操作不可恢复"; printf "\n"
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
@@ -510,7 +517,8 @@ at_install() {
         printf "\n"
     fi
     steps_init 5
-    hr; printf "${B}  安装 AnyTLS ${AT_VERSION}${Z}\n"; hr
+    _box "安装 AnyTLS" "${AT_VERSION}"
+    hr
 
     step "检查并安装依赖"; ensure_pkgs wget unzip curl
     step "下载并部署二进制"; at_download "$AT_VERSION"
@@ -541,7 +549,8 @@ at_configure() {
     printf "\n"
     [ -f "$AT_CONF" ] || { warn "未找到配置文件，请先安装 AnyTLS"; return; }
     at_read_conf
-    hr; printf "${B}  当前配置${Z}\n"; hr
+    _box "AnyTLS" "当前配置"
+    hr
     printf "  ${D}%-6s${Z}  %s\n" "端口" "$CONF_PORT"
     printf "  ${D}%-6s${Z}  %s\n" "密码" "$CONF_PASS"
     printf "  ${D}%-6s${Z}  %s\n" "SNI"  "$CONF_SNI"
@@ -582,7 +591,8 @@ at_update() {
     printf "\n"
     at_is_installed || { warn "AnyTLS 未安装"; return; }
     steps_init 4
-    hr; printf "${B}  更新 AnyTLS${Z}\n"; hr
+    _box "更新 AnyTLS"
+    hr
     step "查询最新版本"
     local old_ver
     old_ver=$(at_get_version)
@@ -604,7 +614,9 @@ at_update() {
 }
 
 at_uninstall() {
-    printf "\n"; hr; printf "${B}  卸载 AnyTLS${Z}\n"; hr; printf "\n"
+    printf "\n"
+    _box "卸载 AnyTLS"
+    hr; printf "\n"
     warn "将删除二进制、配置目录及系统用户，操作不可恢复"; printf "\n"
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
@@ -643,9 +655,9 @@ _box() {
 _svc_menu_items() {
     hr
     printf "   ${W}1${Z}  安装 / 重装\n"
-    printf "   ${W}2${Z}  配置              ${D}端口 · 密钥 · SNI${Z}\n"
-    printf "   ${W}3${Z}  更新              ${D}探测最新版${Z}\n"
-    printf "   ${W}4${Z}  卸载              ${D}完全移除${Z}\n"
+    printf "   ${W}2${Z}  配置\n"
+    printf "   ${W}3${Z}  更新\n"
+    printf "   ${W}4${Z}  卸载\n"
     printf "   ${D}0  返回${Z}\n\n"
     hr
     printf "   请选择: "
@@ -663,8 +675,8 @@ show_main_menu() {
     printf "   ${W}AnyTLS${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
     hr
     printf "\n"
-    printf "   ${W}1${Z}  管理 Snell        ${D}Surge 高性能代理${Z}\n"
-    printf "   ${W}2${Z}  管理 AnyTLS       ${D}抗封锁 TLS 代理${Z}\n"
+    printf "   ${W}1${Z}  管理 Snell\n"
+    printf "   ${W}2${Z}  管理 AnyTLS\n"
     printf "   ${D}0  退出${Z}\n\n"
     hr
     printf "   请选择 ${D}[0-2]${Z}: "

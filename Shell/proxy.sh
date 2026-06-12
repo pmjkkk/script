@@ -54,9 +54,9 @@ confirm() {
 ask() {
     local msg="$1" def="$2"
     if [ -n "$def" ]; then
-        printf "${C}  %-14s${Z}${D}[%s]${Z}: " "$msg" "$def"
+        printf "${C}  %s${Z}  ${D}[%s]${Z}: " "$msg" "$def"
     else
-        printf "${C}  %-14s${Z}: " "$msg"
+        printf "${C}  %s${Z}: " "$msg"
     fi
     read -r REPLY
     [ -z "$REPLY" ] && REPLY="$def"
@@ -237,13 +237,10 @@ snell_show_summary() {
     printf "\n"
     _box "Snell" "配置摘要"
     hr
-    printf "  ${D}%-6s${Z}  %s\n" "地区" "$4"
-    printf "  ${D}%-6s${Z}  %s\n" "IP"   "$3"
-    printf "  ${D}%-6s${Z}  %s\n" "端口" "$1"
-    printf "  ${D}%-6s${Z}  %s\n" "PSK"  "$2"
-    hr
-    printf "  ${D}Surge 节点:${Z}\n"
-    printf "  ${C}%s = snell, %s, %s, psk = %s, version = 5, reuse = true${Z}\n" \
+    printf "  ${D}地区${Z}  %s\n" "$4"
+    printf "  ${D}IP  ${Z}  %s\n" "$3"
+    printf "  ${D}端口${Z}  %s\n" "$1"
+    printf "  ${D}PSK ${Z}  %s\n" "$2"
         "$4" "$3" "$1" "$2"
     hr; printf "\n"
 }
@@ -339,11 +336,11 @@ at_show_summary() {
     printf "\n"
     _box "AnyTLS" "配置摘要"
     hr
-    printf "  ${D}%-6s${Z}  %s\n" "地区" "$4"
-    printf "  ${D}%-6s${Z}  %s\n" "IP"   "$3"
-    printf "  ${D}%-6s${Z}  %s\n" "端口" "$1"
-    printf "  ${D}%-6s${Z}  %s\n" "密码" "$2"
-    printf "  ${D}%-6s${Z}  %s\n" "SNI"  "$5"
+    printf "  ${D}地区${Z}  %s\n" "$4"
+    printf "  ${D}IP  ${Z}  %s\n" "$3"
+    printf "  ${D}端口${Z}  %s\n" "$1"
+    printf "  ${D}密码${Z}  %s\n" "$2"
+    printf "  ${D}SNI ${Z}  %s\n" "$5"
     hr
     printf "  ${D}Surge 节点:${Z}\n"
     printf "  ${C}%s = anytls, %s, %s, password=%s, reuse=true, skip-cert-verify=true, sni=%s${Z}\n" \
@@ -434,8 +431,8 @@ snell_configure() {
     snell_read_conf
     _box "Snell" "当前配置"
     hr
-    printf "  ${D}%-6s${Z}  %s\n" "端口" "$CONF_PORT"
-    printf "  ${D}%-6s${Z}  %s\n" "PSK"  "$CONF_PSK"
+    printf "  ${D}端口${Z}  %s\n" "$CONF_PORT"
+    printf "  ${D}PSK ${Z}  %s\n" "$CONF_PSK"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
@@ -551,9 +548,9 @@ at_configure() {
     at_read_conf
     _box "AnyTLS" "当前配置"
     hr
-    printf "  ${D}%-6s${Z}  %s\n" "端口" "$CONF_PORT"
-    printf "  ${D}%-6s${Z}  %s\n" "密码" "$CONF_PASS"
-    printf "  ${D}%-6s${Z}  %s\n" "SNI"  "$CONF_SNI"
+    printf "  ${D}端口${Z}  %s\n" "$CONF_PORT"
+    printf "  ${D}密码${Z}  %s\n" "$CONF_PASS"
+    printf "  ${D}SNI ${Z}  %s\n" "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"

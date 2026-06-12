@@ -7,7 +7,10 @@
 
 # ---- 颜色 ----
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
-C='\033[0;36m' W='\033[1;37m' N='\033[0m'
+C='\033[0;36m' W='\033[1;37m' D='\033[2m' N='\033[0m'
+
+# ---- 分隔线 ----
+line() { echo -e "${C}  ────────────────────────────────────────────${N}"; }
 
 # ---- 路径 ----
 BIN="/usr/local/bin/realm"
@@ -101,38 +104,40 @@ fetch_version() {
 # ---- 状态栏（供 banner 调用）----
 status_line() {
     local s
-    is_installed && s="${G}已安装${N}" || s="${R}未安装${N}"
-    is_running    && s="$s | ${G}● 运行中${N}" || s="$s | ${R}○ 已停止${N}"
-    is_service_enabled && s="$s | ${Y}自启:开${N}" || s="$s | 自启:关"
+    is_installed       && s="${G}● 已安装${N}"   || s="${D}○ 未安装${N}"
+    is_running         && s="$s    ${G}● 运行中${N}" || s="$s    ${R}○ 已停止${N}"
+    is_service_enabled && s="$s    ${Y}⚙ 自启${N}"   || s="$s    ${D}⚙ 自启关${N}"
     echo "$s"
 }
 
 # ---- 主横幅 ----
 banner() {
     clear
-    echo -e "${C}  ════════════════════════════════════════════"
-    echo -e "    ${W}Realm 端口转发管理面板  v1.4${C}"
-    echo -e "    Alpine Linux ｜ OpenRC"
-    echo -e "  ════════════════════════════════════════════${N}"
-    echo -e "    状态: $(status_line)"
-    echo -e "${C}  ════════════════════════════════════════════${N}"
-    echo -e "  ${W}1.${N}  安装 / 升级 Realm"
-    echo -e "  ${W}2.${N}  规则管理   (增 / 删 / 重置 / 备份)"
-    echo -e "  ${W}3.${N}  服务管理   (启动 / 停止 / 自启)"
-    echo -e "  ${W}4.${N}  状态 & 配置"
-    echo -e "  ${W}5.${N}  查看日志"
-    echo -e "  ${W}6.${N}  卸载 Realm"
-    echo -e "  ${W}0.${N}  退出"
-    echo -e "${C}  ════════════════════════════════════════════${N}"
-    echo -ne "  请输入选项 [0-6]: "
+    echo ''
+    echo -e "  ${C}${W}Realm${N}  ${W}端口转发管理面板${N}  ${D}v1.4${N}"
+    echo -e "  ${D}Alpine Linux · OpenRC${N}"
+    line
+    echo -e "   $(status_line)"
+    line
+    echo ''
+    echo -e "   ${W}1${N}  安装 / 升级       ${D}部署或更新 Realm${N}"
+    echo -e "   ${W}2${N}  规则管理          ${D}增 · 删 · 重置 · 备份${N}"
+    echo -e "   ${W}3${N}  服务管理          ${D}启动 · 停止 · 自启${N}"
+    echo -e "   ${W}4${N}  状态 & 配置       ${D}查看运行详情${N}"
+    echo -e "   ${W}5${N}  查看日志          ${D}尾部 · 跟踪 · 清空${N}"
+    echo -e "   ${W}6${N}  卸载              ${D}完全移除${N}"
+    echo -e "   ${D}0  退出${N}"
+    echo ''
+    line
+    echo -ne "   请选择 ${D}[0-6]${N}: "
 }
 
 # ---- 子菜单横幅（不依赖宽度计算，避免中文错位）----
 sub_banner() {
     clear
-    echo -e "${C}  ════════════════════════════════════════════${N}"
-    echo -e "    ${W}▶ $1${N}"
-    echo -e "${C}  ════════════════════════════════════════════${N}"
+    echo ''
+    echo -e "  ${C}${W}▸ $1${N}"
+    line
     echo ''
 }
 
@@ -173,8 +178,7 @@ _do_install_bin() {
 #  1. 安装 / 升级
 # ============================================================
 install_realm() {
-    banner
-    echo -e "\n${Y}▶ 安装 / 升级 Realm${N}\n"
+    sub_banner "安装 / 升级 Realm"
     [ "$(id -u)" -ne 0 ] && { echo -e "${R}✗ 请以 root 运行${N}"; pause; return; }
 
     local arch cur_ver latest_ver
@@ -344,12 +348,13 @@ manage_rules() {
             echo -e "  ${Y}配置文件不存在${N}\n"
         fi
 
-        echo -e "  ${W}1${N}  添加规则"
-        echo -e "  ${W}2${N}  删除规则"
-        echo -e "  ${W}3${N}  重置所有规则"
-        echo -e "  ${W}4${N}  备份 / 还原"
-        echo -e "  ${W}0${N}  返回主菜单\n"
-        echo -ne "  请选择 [0-4]: "
+        line
+        echo -e "   ${W}1${N}  添加规则          ${D}追加转发条目${N}"
+        echo -e "   ${W}2${N}  删除规则          ${D}按编号移除${N}"
+        echo -e "   ${W}3${N}  重置所有规则      ${D}清空后重录${N}"
+        echo -e "   ${W}4${N}  备份 / 还原       ${D}配置快照${N}"
+        echo -e "   ${D}0  返回主菜单${N}\n"
+        echo -ne "   请选择 ${D}[0-4]${N}: "
         read -r choice
 
         # 改动后若服务在运行会自动重启生效（各函数内部处理）
@@ -465,9 +470,10 @@ _rule_backup() {
         [ "$i" -eq 0 ] && echo -e "  ${Y}暂无备份文件${N}"
         echo ''
 
-        echo -e "  ${W}m${N}  立即备份当前配置"
-        echo -e "  ${W}0${N}  返回\n"
-        echo -ne "  输入编号还原，或选项: "
+        line
+        echo -e "   ${W}m${N}  立即备份当前配置"
+        echo -e "   ${D}0  返回${N}\n"
+        echo -ne "   输入编号还原，或选项: "
         read -r bc
 
         case "$bc" in
@@ -521,12 +527,13 @@ manage_service() {
             && echo -e "  自启: ${Y}已启用${N}\n" \
             || echo -e "  自启: 未启用\n"
 
-        echo -e "  ${W}1${N}  启动"
-        echo -e "  ${W}2${N}  停止"
-        echo -e "  ${W}3${N}  重启"
-        echo -e "  ${W}4${N}  开机自启  开/关"
-        echo -e "  ${W}0${N}  返回主菜单\n"
-        echo -ne "  请选择 [0-4]: "
+        line
+        echo -e "   ${W}1${N}  启动"
+        echo -e "   ${W}2${N}  停止"
+        echo -e "   ${W}3${N}  重启"
+        echo -e "   ${W}4${N}  开机自启          ${D}开 / 关${N}"
+        echo -e "   ${D}0  返回主菜单${N}\n"
+        echo -ne "   请选择 ${D}[0-4]${N}: "
         read -r choice
 
         case "$choice" in
@@ -578,8 +585,7 @@ manage_service() {
 #  4. 状态 & 配置（合并）
 # ============================================================
 check_status() {
-    banner
-    echo -e "\n${Y}▶ 状态 & 配置${N}\n"
+    sub_banner "状态 & 配置"
 
     # 安装信息
     if ! is_installed; then
@@ -650,8 +656,7 @@ check_status() {
 # ============================================================
 view_logs() {
     while true; do
-        banner
-        echo -e "\n${Y}▶ 查看日志${N}\n"
+        sub_banner "查看日志"
 
         if [ ! -f "$LOGFILE" ]; then
             echo -e "  ${R}日志文件不存在: $LOGFILE${N}\n"
@@ -670,8 +675,9 @@ view_logs() {
             echo -e "${N}"
         fi
 
-        echo -e "  ${W}1${N}  刷新    ${W}2${N}  清空    ${W}3${N}  实时跟踪    ${W}0${N}  返回\n"
-        echo -ne "  请选择: "
+        line
+        echo -e "   ${W}1${N}  刷新    ${W}2${N}  清空    ${W}3${N}  实时跟踪    ${D}0  返回${N}\n"
+        echo -ne "   请选择: "
         read -r lc
 
         case "$lc" in
@@ -700,8 +706,7 @@ view_logs() {
 #  6. 卸载
 # ============================================================
 uninstall_realm() {
-    banner
-    echo -e "\n${R}▶ 卸载 Realm${N}\n"
+    sub_banner "卸载 Realm"
     echo -e "  ${Y}将删除:${N}"
     echo -e "    • $BIN"
     echo -e "    • $WORKDIR  (含配置与所有备份)"

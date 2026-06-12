@@ -28,7 +28,7 @@ AT_VERSION="v0.0.12"
 
 # ── ANSI ────────────────────────────────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' Y='\033[0;33m' C='\033[0;36m'
-B='\033[1m'    D='\033[2m'    Z='\033[0m'
+B='\033[1m'    D='\033[2m'    W='\033[1;37m' Z='\033[0m'
 
 ###############################################################################
 # §1  输出 & 交互
@@ -623,31 +623,32 @@ at_uninstall() {
 _status_line() {
     if [ "$1" = "1" ]; then
         [ "$2" = "1" ] && printf "${G}● 运行中${Z}  ${D}%s${Z}" "$3" \
-                       || printf "${R}● 已停止${Z}  ${D}%s${Z}" "$3"
+                       || printf "${Y}○ 已停止${Z}  ${D}%s${Z}" "$3"
     else
-        printf "${D}● 未安装${Z}"
+        printf "${D}○ 未安装${Z}"
     fi
 }
 
-# 标准框  $1=标题
+# 标题头  $1=主标题  $2=副标题(可选) —— 无边框，规避中文宽度对齐问题
 _box() {
-    printf "${G}${B}\n"
-    printf "  ╔════════════════════════════════════╗\n"
-    printf "  ║  %-32s║\n" "$1"
-    printf "  ╚════════════════════════════════════╝\n"
-    printf "${Z}\n"
+    printf "\n"
+    if [ -n "$2" ]; then
+        printf "  ${C}${B}%s${Z}  ${D}%s${Z}\n" "$1" "$2"
+    else
+        printf "  ${C}${B}%s${Z}\n" "$1"
+    fi
 }
 
 # 服务子菜单的固定项
 _svc_menu_items() {
     hr
-    printf "  ${C}1${Z}  安装 / 重装\n"
-    printf "  ${C}2${Z}  配置\n"
-    printf "  ${C}3${Z}  更新\n"
-    printf "  ${C}4${Z}  卸载\n"
+    printf "   ${W}1${Z}  安装 / 重装\n"
+    printf "   ${W}2${Z}  配置              ${D}端口 · 密钥 · SNI${Z}\n"
+    printf "   ${W}3${Z}  更新              ${D}探测最新版${Z}\n"
+    printf "   ${W}4${Z}  卸载              ${D}完全移除${Z}\n"
+    printf "   ${D}0  返回${Z}\n\n"
     hr
-    printf "  ${D}0  返回${Z}\n\n"
-    printf "  请选择: "
+    printf "   请选择: "
 }
 
 show_main_menu() {
@@ -655,15 +656,18 @@ show_main_menu() {
     local si=0 sr=0 ai=0 ar=0
     snell_is_installed && si=1; snell_is_running && sr=1
     at_is_installed    && ai=1; at_is_running    && ar=1
-    _box "代理服务管理工具"
-    printf "  Snell   %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
-    printf "  AnyTLS  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
-    printf "\n"; hr
-    printf "  ${C}1${Z}  管理 Snell\n"
-    printf "  ${C}2${Z}  管理 AnyTLS\n"
+    _box "代理服务管理" "Snell · AnyTLS"
+    printf "  ${D}Alpine Linux 专用${Z}\n"
     hr
-    printf "  ${D}0  退出${Z}\n\n"
-    printf "  请选择: "
+    printf "   ${W}Snell ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
+    printf "   ${W}AnyTLS${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
+    hr
+    printf "\n"
+    printf "   ${W}1${Z}  管理 Snell        ${D}Surge 高性能代理${Z}\n"
+    printf "   ${W}2${Z}  管理 AnyTLS       ${D}抗封锁 TLS 代理${Z}\n"
+    printf "   ${D}0  退出${Z}\n\n"
+    hr
+    printf "   请选择 ${D}[0-2]${Z}: "
     read -r CHOICE
 }
 
@@ -680,7 +684,7 @@ show_svc_menu() {
             [ -n "$CONF_PORT" ] && extra="  端口 ${C}${CONF_PORT}${Z}"
             [ -n "$ip" ]        && extra="${extra}   IP ${C}${ip}${Z}"
         fi
-        _box "Snell Server 管理"
+        _box "Snell Server" "管理"
     else
         at_is_installed && inst=1; at_is_running && run=1
         ver=$(at_get_version)
@@ -690,11 +694,12 @@ show_svc_menu() {
             [ -n "$CONF_PORT" ] && extra="  端口 ${C}${CONF_PORT}${Z}   SNI ${C}${CONF_SNI}${Z}"
             [ -n "$ip" ]        && extra="${extra}   IP ${C}${ip}${Z}"
         fi
-        _box "AnyTLS Server 管理"
+        _box "AnyTLS Server" "管理"
     fi
-    printf "  状态  %b\n" "$(_status_line $inst $run "$ver")"
-    [ -n "$extra" ] && printf "%b\n" "$extra"
     printf "\n"
+    hr
+    printf "  状态  %b\n" "$(_status_line $inst $run "$ver")"
+    [ -n "$extra" ] && printf "  ${D}%b${Z}\n" "$extra"
     _svc_menu_items
     read -r CHOICE
 }

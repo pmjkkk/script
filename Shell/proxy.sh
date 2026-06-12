@@ -693,8 +693,8 @@ show_svc_menu() {
         if [ $inst -eq 1 ]; then
             snell_read_conf 2>/dev/null
             ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SNELL_INFO" 2>/dev/null | head -1)
-            [ -n "$CONF_PORT" ] && extra="  端口 ${C}${CONF_PORT}${Z}"
-            [ -n "$ip" ]        && extra="${extra}   IP ${C}${ip}${Z}"
+            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
+            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
         fi
         _box "Snell Server" "管理"
     else
@@ -703,8 +703,8 @@ show_svc_menu() {
         if [ $inst -eq 1 ]; then
             at_read_conf 2>/dev/null
             ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
-            [ -n "$CONF_PORT" ] && extra="  端口 ${C}${CONF_PORT}${Z}   SNI ${C}${CONF_SNI}${Z}"
-            [ -n "$ip" ]        && extra="${extra}   IP ${C}${ip}${Z}"
+            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
         fi
         _box "AnyTLS Server" "管理"
     fi

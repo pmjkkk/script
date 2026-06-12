@@ -7,7 +7,7 @@
 
 # ---- 颜色 ----
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
-B='\033[0;34m' C='\033[0;36m' W='\033[1;37m' N='\033[0m'
+C='\033[0;36m' W='\033[1;37m' N='\033[0m'
 
 # ---- 路径 ----
 BIN="/usr/local/bin/realm"
@@ -52,7 +52,8 @@ EOF
 
 # 创建带时间戳的配置备份，成功时把路径打印到 stdout
 backup_config() {
-    local bak="${CONFIG}.bak.$(date +%Y%m%d_%H%M%S)"
+    local bak
+    bak="${CONFIG}.bak.$(date +%Y%m%d_%H%M%S)"
     cp "$CONFIG" "$bak" 2>/dev/null && echo "$bak"
 }
 
@@ -261,8 +262,9 @@ _input_one_rule() {
         case "$listen_port" in
             *[!0-9]*) echo -e "  ${R}✗ 端口必须为纯数字${N}"; continue ;;
         esac
-        [ "$listen_port" -lt 1 ] || [ "$listen_port" -gt 65535 ] && {
-            echo -e "  ${R}✗ 端口范围 1-65535${N}"; continue; }
+        if [ "$listen_port" -lt 1 ] || [ "$listen_port" -gt 65535 ]; then
+            echo -e "  ${R}✗ 端口范围 1-65535${N}"; continue
+        fi
         # 重复检测
         if grep -q "\"${listen_ip}:${listen_port}\"" "$CONFIG" 2>/dev/null; then
             echo -ne "  ${Y}⚠ 该监听地址已存在，仍要使用? [y/N]: ${N}"
@@ -371,7 +373,7 @@ _rule_add() {
     while true; do
         [ "$added" -gt 0 ] && echo ''
         echo -e "  ${W}── 规则 #$((added+1)) ──${N}"
-        _input_one_rule && added=$((added+1)) || break
+        if _input_one_rule; then added=$((added+1)); else break; fi
     done
     if [ "$added" -gt 0 ]; then
         echo -e "\n  ${G}✓ 共添加 $added 条规则${N}"
@@ -430,7 +432,7 @@ _rule_reset() {
     local count=0
     while true; do
         echo -e "  ${W}── 规则 #$((count+1)) ──${N}"
-        _input_one_rule && { count=$((count+1)); echo ''; } || break
+        if _input_one_rule; then count=$((count+1)); echo ''; else break; fi
     done
 
     if grep -q '\[\[endpoints\]\]' "$CONFIG" 2>/dev/null; then

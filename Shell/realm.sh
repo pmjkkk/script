@@ -41,11 +41,6 @@ count_rules() {
     grep -c '^\[\[endpoints\]\]' "$CONFIG" 2>/dev/null
 }
 
-require_installed() {
-    is_installed && return 0
-    die_msg "Realm 未安装，请先执行安装"; pause; return 1
-}
-
 require_config() {
     [ -f "$CONFIG" ] && return 0
     die_msg "配置文件不存在，请先安装 Realm"; pause; return 1
@@ -72,10 +67,10 @@ backup_config() {
 #   svc <action> <up|down> <成功提示> <失败提示>
 svc() {
     rc-service realm "$1" 2>&1; sleep 1
-    local ok
-    if [ "$2" = up ]; then is_running && ok=1 || ok=0
-    else                   is_running && ok=0 || ok=1; fi
-    [ "$ok" = 1 ] && ok "$3" || die_msg "$4"
+    local _ok
+    if [ "$2" = up ]; then is_running && _ok=1 || _ok=0
+    else                   is_running && _ok=0 || _ok=1; fi
+    if [ "$_ok" = 1 ]; then ok "$3"; else die_msg "$4"; fi
 }
 
 # 配置变更后自动生效：服务在运行则直接重启，否则无需操作
@@ -283,7 +278,8 @@ _input_one_rule() {
         esac
         if [ "$listen_port" -lt 1 ] || [ "$listen_port" -gt 65535 ]; then
             die_msg "端口范围 1-65535"; continue
-        fi        # 重复检测
+        fi
+        # 重复检测
         if grep -q "\"${listen_ip}:${listen_port}\"" "$CONFIG" 2>/dev/null; then
             echo -ne "  ${Y}⚠ 该监听地址已存在，仍要使用? [y/N]: ${N}"
             read -r dup
@@ -617,9 +613,9 @@ check_status() {
     bin_ver=$($BIN --version 2>/dev/null | head -1 || echo "未知")
 
     # 版本 & 路径
-    printf "  ${D}%-6s${N}  ${W}%s${N}\n" "版本" "$bin_ver"
-    printf "  ${D}%-6s${N}  ${C}%s${N}\n" "程序" "$BIN"
-    printf "  ${D}%-6s${N}  ${C}%s${N}\n" "配置" "$CONFIG"
+    printf "  ${D}版本${N}  ${W}%s${N}\n" "$bin_ver"
+    printf "  ${D}程序${N}  ${C}%s${N}\n" "$BIN"
+    printf "  ${D}配置${N}  ${C}%s${N}\n" "$CONFIG"
     echo ''
 
     # 运行状态
@@ -763,6 +759,6 @@ while true; do
         5) view_logs ;;
         6) uninstall_realm ;;
         0) clear; echo -e "${C}再见 👋${N}"; exit 0 ;;
-        *) echo -e "${R}  无效选项: $choice${N}"; sleep 1 ;;
+        *) die_msg "无效选项: $choice"; sleep 1 ;;
     esac
 done

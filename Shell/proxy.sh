@@ -38,7 +38,7 @@ die()  { printf "\n${R}✗ %s${Z}\n" "$*"; exit 1; }
 ok()   { printf "${G}✓ %s${Z}\n" "$*"; }
 warn() { printf "${Y}⚠ %s${Z}\n" "$*"; }
 info() { printf "${C}! %s${Z}\n" "$*"; }
-hr()   { printf "${D}──────────────────────────────────────────────${Z}\n"; }
+hr()   { printf "${D}  ──────────────────────────────────────────${Z}\n"; }
 
 # confirm  $1=提示  $2=默认 y|n（默认 n）
 confirm() {
@@ -237,10 +237,10 @@ snell_show_summary() {
     printf "\n"
     _box "Snell" "配置摘要"
     hr
-    printf "  ${D}地区${Z}  %s\n" "$4"
-    printf "  ${D}IP  ${Z}  %s\n" "$3"
-    printf "  ${D}端口${Z}  %s\n" "$1"
-    printf "  ${D}PSK ${Z}  %s\n" "$2"
+    printf "    ${D}地区${Z}  %s\n" "$4"
+    printf "    ${D}IP  ${Z}  %s\n" "$3"
+    printf "    ${D}端口${Z}  %s\n" "$1"
+    printf "    ${D}PSK ${Z}  %s\n" "$2"
     hr
     printf "  ${D}Surge 节点:${Z}\n"
     printf "  ${C}%s = snell, %s, %s, psk = %s, version = 5, reuse = true${Z}\n" \
@@ -339,11 +339,11 @@ at_show_summary() {
     printf "\n"
     _box "AnyTLS" "配置摘要"
     hr
-    printf "  ${D}地区${Z}  %s\n" "$4"
-    printf "  ${D}IP  ${Z}  %s\n" "$3"
-    printf "  ${D}端口${Z}  %s\n" "$1"
-    printf "  ${D}密码${Z}  %s\n" "$2"
-    printf "  ${D}SNI ${Z}  %s\n" "$5"
+    printf "    ${D}地区${Z}  %s\n" "$4"
+    printf "    ${D}IP  ${Z}  %s\n" "$3"
+    printf "    ${D}端口${Z}  %s\n" "$1"
+    printf "    ${D}密码${Z}  %s\n" "$2"
+    printf "    ${D}SNI ${Z}  %s\n" "$5"
     hr
     printf "  ${D}Surge 节点:${Z}\n"
     printf "  ${C}%s = anytls, %s, %s, password=%s, reuse=true, skip-cert-verify=true, sni=%s${Z}\n" \
@@ -434,8 +434,8 @@ snell_configure() {
     snell_read_conf
     _box "Snell" "当前配置"
     hr
-    printf "  ${D}端口${Z}  %s\n" "$CONF_PORT"
-    printf "  ${D}PSK ${Z}  %s\n" "$CONF_PSK"
+    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
+    printf "    ${D}PSK ${Z}  %s\n" "$CONF_PSK"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
@@ -551,9 +551,9 @@ at_configure() {
     at_read_conf
     _box "AnyTLS" "当前配置"
     hr
-    printf "  ${D}端口${Z}  %s\n" "$CONF_PORT"
-    printf "  ${D}密码${Z}  %s\n" "$CONF_PASS"
-    printf "  ${D}SNI ${Z}  %s\n" "$CONF_SNI"
+    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
+    printf "    ${D}密码${Z}  %s\n" "$CONF_PASS"
+    printf "    ${D}SNI ${Z}  %s\n" "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
@@ -645,22 +645,22 @@ _status_line() {
 _box() {
     printf "\n"
     if [ -n "$2" ]; then
-        printf "  ${C}${B}%s${Z}  ${D}%s${Z}\n" "$1" "$2"
+        printf "  ${C}◆${Z} ${W}${B}%s${Z} ${D}%s${Z}\n" "$1" "$2"
     else
-        printf "  ${C}${B}%s${Z}\n" "$1"
+        printf "  ${C}◆${Z} ${W}${B}%s${Z}\n" "$1"
     fi
 }
 
 # 服务子菜单的固定项
 _svc_menu_items() {
     hr
-    printf "   ${W}1${Z}  安装 / 重装\n"
-    printf "   ${W}2${Z}  配置\n"
-    printf "   ${W}3${Z}  更新\n"
-    printf "   ${W}4${Z}  卸载\n"
+    printf "   ${C}1${Z}  安装 / 重装\n"
+    printf "   ${C}2${Z}  配置\n"
+    printf "   ${C}3${Z}  更新\n"
+    printf "   ${C}4${Z}  卸载\n"
     printf "   ${D}0  返回${Z}\n\n"
     hr
-    printf "   请选择: "
+    printf "   请选择 ${W}❯${Z} "
 }
 
 show_main_menu() {
@@ -669,17 +669,17 @@ show_main_menu() {
     snell_is_installed && si=1; snell_is_running && sr=1
     at_is_installed    && ai=1; at_is_running    && ar=1
     _box "代理服务管理" "Snell · AnyTLS"
-    printf "  ${D}Alpine Linux 专用${Z}\n"
+    printf "    ${D}Alpine Linux 专用${Z}\n"
     hr
-    printf "   ${W}Snell ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
-    printf "   ${W}AnyTLS${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
+    printf "    ${W}Snell ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
+    printf "    ${W}AnyTLS${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
     hr
     printf "\n"
-    printf "   ${W}1${Z}  管理 Snell\n"
-    printf "   ${W}2${Z}  管理 AnyTLS\n"
+    printf "   ${C}1${Z}  管理 Snell\n"
+    printf "   ${C}2${Z}  管理 AnyTLS\n"
     printf "   ${D}0  退出${Z}\n\n"
     hr
-    printf "   请选择 ${D}[0-2]${Z}: "
+    printf "   请选择 ${D}[0-2]${Z} ${W}❯${Z} "
     read -r CHOICE
 }
 
@@ -708,10 +708,9 @@ show_svc_menu() {
         fi
         _box "AnyTLS Server" "管理"
     fi
-    printf "\n"
     hr
-    printf "  状态  %b\n" "$(_status_line $inst $run "$ver")"
-    [ -n "$extra" ] && printf "  ${D}%b${Z}\n" "$extra"
+    printf "    状态  %b\n" "$(_status_line $inst $run "$ver")"
+    [ -n "$extra" ] && printf "    ${D}%b${Z}\n" "$extra"
     _svc_menu_items
     read -r CHOICE
 }

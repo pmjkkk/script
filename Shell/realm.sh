@@ -8,10 +8,10 @@
 
 # ---- 颜色 ----
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
-C='\033[0;36m' W='\033[1;37m' D='\033[2m' N='\033[0m'
+C='\033[0;36m' W='\033[1;37m' B='\033[1m' D='\033[2m' N='\033[0m'
 
-# ---- 分隔线 ----
-line() { echo -e "${C}  ────────────────────────────────────────────${N}"; }
+# ---- 分隔线（统一：2空格缩进 · dim 灰 · 44 长度）----
+line() { echo -e "${D}  ──────────────────────────────────────────${N}"; }
 
 # ---- 路径 ----
 BIN="/usr/local/bin/realm"
@@ -115,29 +115,29 @@ status_line() {
 banner() {
     clear
     echo ''
-    echo -e "  ${C}${W}Realm${N}  ${W}端口转发管理面板${N}  ${D}v1.4${N}"
-    echo -e "  ${D}Alpine Linux · OpenRC${N}"
+    echo -e "  ${C}◆${N} ${W}${B}Realm${N} ${D}端口转发管理面板${N}"
+    echo -e "    ${D}Alpine · OpenRC · v1.4${N}"
     line
-    echo -e "   $(status_line)"
+    echo -e "    $(status_line)"
     line
     echo ''
-    echo -e "   ${W}1${N}  安装 / 升级"
-    echo -e "   ${W}2${N}  规则管理"
-    echo -e "   ${W}3${N}  服务管理"
-    echo -e "   ${W}4${N}  状态 & 配置"
-    echo -e "   ${W}5${N}  查看日志"
-    echo -e "   ${W}6${N}  卸载"
+    echo -e "   ${C}1${N}  安装 / 升级"
+    echo -e "   ${C}2${N}  规则管理"
+    echo -e "   ${C}3${N}  服务管理"
+    echo -e "   ${C}4${N}  状态 & 配置"
+    echo -e "   ${C}5${N}  查看日志"
+    echo -e "   ${C}6${N}  卸载"
     echo -e "   ${D}0  退出${N}"
     echo ''
     line
-    echo -ne "   请选择 ${D}[0-6]${N}: "
+    echo -ne "   请选择 ${D}[0-6]${N} ${W}❯${N} "
 }
 
 # ---- 子菜单横幅（不依赖宽度计算，避免中文错位）----
 sub_banner() {
     clear
     echo ''
-    echo -e "  ${C}${W}▸ $1${N}"
+    echo -e "  ${C}◆${N} ${W}${B}$1${N}"
     line
     echo ''
 }
@@ -361,12 +361,12 @@ manage_rules() {
         fi
 
         line
-        echo -e "   ${W}1${N}  添加规则"
-        echo -e "   ${W}2${N}  删除规则"
-        echo -e "   ${W}3${N}  重置所有规则"
-        echo -e "   ${W}4${N}  备份 / 还原"
+        echo -e "   ${C}1${N}  添加规则"
+        echo -e "   ${C}2${N}  删除规则"
+        echo -e "   ${C}3${N}  重置所有规则"
+        echo -e "   ${C}4${N}  备份 / 还原"
         echo -e "   ${D}0  返回主菜单${N}\n"
-        echo -ne "   请选择 ${D}[0-4]${N}: "
+        echo -ne "   请选择 ${D}[0-4]${N} ${W}❯${N} "
         read -r choice
 
         # 改动后若服务在运行会自动重启生效（各函数内部处理）
@@ -487,9 +487,9 @@ _rule_backup() {
         echo ''
 
         line
-        echo -e "   ${W}m${N}  立即备份当前配置"
+        echo -e "   ${C}m${N}  立即备份当前配置"
         echo -e "   ${D}0  返回${N}\n"
-        echo -ne "   输入编号还原，或选项: "
+        echo -ne "   输入编号还原，或选项 ${W}❯${N} "
         read -r bc
 
         case "$bc" in
@@ -544,12 +544,12 @@ manage_service() {
             || echo -e "  ${D}⚙ 自启未启用${N}\n"
 
         line
-        echo -e "   ${W}1${N}  启动"
-        echo -e "   ${W}2${N}  停止"
-        echo -e "   ${W}3${N}  重启"
-        echo -e "   ${W}4${N}  开机自启"
+        echo -e "   ${C}1${N}  启动"
+        echo -e "   ${C}2${N}  停止"
+        echo -e "   ${C}3${N}  重启"
+        echo -e "   ${C}4${N}  开机自启"
         echo -e "   ${D}0  返回主菜单${N}\n"
-        echo -ne "   请选择 ${D}[0-4]${N}: "
+        echo -ne "   请选择 ${D}[0-4]${N} ${W}❯${N} "
         read -r choice
 
         case "$choice" in
@@ -695,8 +695,8 @@ view_logs() {
         fi
 
         line
-        echo -e "   ${W}1${N}  刷新    ${W}2${N}  清空    ${W}3${N}  实时跟踪    ${D}0  返回${N}\n"
-        echo -ne "   请选择: "
+        echo -e "   ${C}1${N}  刷新    ${C}2${N}  清空    ${C}3${N}  实时跟踪    ${D}0  返回${N}\n"
+        echo -ne "   请选择 ${W}❯${N} "
         read -r lc
 
         case "$lc" in

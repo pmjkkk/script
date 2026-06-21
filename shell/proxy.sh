@@ -132,22 +132,20 @@ ensure_pkgs() {
     ok "依赖安装完成"
 }
 
-# 公网 IP → PUB_IP / PUB_COUNTRY
+# 公网 IP + 国家 → PUB_IP / PUB_COUNTRY（单次 Cloudflare trace，失败兜底 ipify）
 fetch_public_ip() {
-    local raw
-    raw=$(curl -s --connect-timeout 5 --max-time 10 \
-        "https://www.cloudflare.com/cdn-cgi/trace" \
-        | grep '^ip=' | sed 's/^ip=//' | tr -d '[:space:]')
-    [ -z "$raw" ] && raw=$(curl -s --connect-timeout 5 --max-time 10 \
-        "https://api.ipify.org" | tr -d '[:space:]')
-    PUB_IP="${raw:-未知}"
-    if [ "$PUB_IP" != "未知" ]; then
-        PUB_COUNTRY=$(curl -s --connect-timeout 5 --max-time 10 \
-            "https://ipinfo.io/${PUB_IP}/country" | tr -d '[:space:]')
-        [ -z "$PUB_COUNTRY" ] && PUB_COUNTRY="未知"
-    else
-        PUB_COUNTRY="未知"
+    local trace
+    trace=$(curl -s --connect-timeout 5 --max-time 10 \
+        "https://www.cloudflare.com/cdn-cgi/trace")
+    PUB_IP=$(echo "$trace"     | grep '^ip='  | sed 's/^ip=//'  | tr -d '[:space:]')
+    PUB_COUNTRY=$(echo "$trace" | grep '^loc=' | sed 's/^loc=//' | tr -d '[:space:]')
+    # Cloudflare 失败则兜底获取 IP，国家标记未知
+    if [ -z "$PUB_IP" ]; then
+        PUB_IP=$(curl -s --connect-timeout 5 --max-time 10 \
+            "https://api.ipify.org" | tr -d '[:space:]')
     fi
+    PUB_IP="${PUB_IP:-未知}"
+    PUB_COUNTRY="${PUB_COUNTRY:-未知}"
 }
 
 _port_in_use() {
@@ -393,9 +391,10 @@ at_is_running()   { [ -f "$AT_INIT" ] && rc-service anytls status > /dev/null 2>
 
 at_get_version() {
     at_is_installed || { echo "未安装"; return; }
+    # anytls-server 无 -version flag；版本号在安装/更新时写入 AT_INFO 第一行注释
     local v
-    v=$("$AT_BIN" -version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    [ -n "$v" ] && echo "v${v}" || echo "未知"
+    v=$(grep '^# version:' "$AT_INFO" 2>/dev/null | sed 's/^# version:[[:space:]]*//')
+    [ -n "$v" ] && echo "$v" || echo "未知"
 }
 
 at_read_conf() {
@@ -417,7 +416,10 @@ at_node() {
     printf '%s = anytls, %s, %s, password=%s, reuse=true, skip-cert-verify=true, sni=%s' \
         "$4" "$3" "$1" "$2" "$5"
 }
-at_write_info() { { at_node "$@"; echo; } > "$AT_INFO"; }
+# $1=port $2=pass $3=ip $4=country $5=sni $6=ver
+at_write_info() {
+    { printf '# version: %s\n' "$6"; at_node "$1" "$2" "$3" "$4" "$5"; echo; } > "$AT_INFO"
+}
 
 at_write_init() {
     cat > "$AT_INIT" << 'EOF'
@@ -774,7 +776,7 @@ at_install() {
     svc enable anytls; _restart_wait anytls "AnyTLS 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    at_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    at_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI" "$AT_VERSION"
     at_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
 }
 
@@ -809,7 +811,7 @@ at_configure() {
     rm -f "$AT_CONF_BAK"
     _restart_wait anytls "新配置已生效"
     fetch_public_ip
-    at_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
+    at_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni" "$(at_get_version)"
     at_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
 }
 
@@ -834,7 +836,7 @@ at_update() {
     step "下载并部署"; ensure_pkgs unzip curl; at_download "$AT_LATEST_VER" "$AT_LATEST_SHA256"; AT_VERSION="$AT_LATEST_VER"
     step "启动服务"; _restart_wait anytls "AnyTLS 已启动（$(at_get_version)）" "启动超时"
     at_read_conf
-    [ -n "$CONF_PORT" ] && { fetch_public_ip; at_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; at_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
+    [ -n "$CONF_PORT" ] && { fetch_public_ip; at_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI" "$AT_VERSION"; at_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
 }
 
 at_uninstall() {

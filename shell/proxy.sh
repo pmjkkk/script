@@ -36,7 +36,7 @@ readonly SS_CONF_BAK="${SS_CONF}.bak"
 readonly SS_INFO="/etc/shadowsocks/config.txt"
 readonly SS_INIT="/etc/init.d/shadowsocks"
 readonly SS_USER="ss"
-readonly SS_METHOD="aes-256-gcm"
+readonly SS_METHOD="2022-blake3-aes-128-gcm"
 
 # ── Hysteria2 ────────────────────────────────────────────────────────────────
 readonly HY_BIN="/usr/local/bin/hysteria"
@@ -107,6 +107,8 @@ check_arch()   {
 
 # 随机密钥（24 位字母数字）
 gen_secret() { tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24; }
+# SS 2022 密钥：16 字节随机数 → base64（2022-blake3-aes-128-gcm 要求）
+gen_ss_pass() { openssl rand -base64 16; }
 
 # 架构检测  $1=go → Go 命名(arm64)；否则 GNU 命名(aarch64)
 _arch() {
@@ -494,30 +496,28 @@ ss_read_conf() {
     [ -f "$SS_CONF" ] || return 1
     CONF_PORT=$(grep '"server_port"' "$SS_CONF" | grep -oE '[0-9]+')
     CONF_PASS=$(grep '"password"'    "$SS_CONF" | sed 's/.*: *"//; s/".*//')
-    CONF_METHOD=$(grep '"method"'    "$SS_CONF" | sed 's/.*: *"//; s/".*//')
-    [ -z "$CONF_METHOD" ] && CONF_METHOD="$SS_METHOD"
     return 0
 }
 
 ss_write_conf() {
-    # $1=port $2=password $3=method
+    # $1=port $2=password
     mkdir -p /etc/shadowsocks || return 1
     cat > "$SS_CONF" << EOF
 {
     "server": "::",
     "server_port": $1,
     "password": "$2",
-    "method": "$3",
+    "method": "${SS_METHOD}",
     "mode": "tcp_and_udp",
     "fast_open": false
 }
 EOF
 }
 
-# 节点字符串  $1=port $2=pass $3=ip $4=country $5=method
+# 节点字符串  $1=port $2=pass $3=ip $4=country
 ss_node() {
     printf '%s = ss, %s, %s, encrypt-method=%s, password=%s, udp-relay=true' \
-        "$4" "$3" "$1" "$5" "$2"
+        "$4" "$3" "$1" "$SS_METHOD" "$2"
 }
 ss_write_info() { { ss_node "$@"; echo; } > "$SS_INFO"; }
 
@@ -535,9 +535,10 @@ EOF
 }
 
 ss_show_summary() {
-    # $1=port $2=pass $3=ip $4=country $5=method
+    # $1=port $2=pass $3=ip $4=country
     printf "\n"; _box "Shadowsocks" "配置摘要"; hr
-    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "密码" "$2"; _kv "加密" "$5"
+    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "密码" "$2"
+    _kv "加密" "$SS_METHOD"
     hr; _node "$(ss_node "$@")"; hr; printf "\n"
 }
 
@@ -853,22 +854,22 @@ ss_install() {
     steps_init 4
     _box "安装 Shadowsocks" "shadowsocks-rust"; hr
 
-    step "检查并安装依赖"; ensure_pkgs shadowsocks-rust curl
+    step "检查并安装依赖"; ensure_pkgs shadowsocks-rust curl openssl
     [ -f "$SS_BIN" ] || die "ssserver 未找到，apk 安装可能失败"
     step "创建系统用户"; _ensure_user "$SS_USER"
 
     step "生成配置"
     local port pass
-    port=$(gen_port); pass=$(gen_secret)
-    ss_write_conf "$port" "$pass" "$SS_METHOD" || die "配置写入失败"
+    port=$(gen_port); pass=$(gen_ss_pass)
+    ss_write_conf "$port" "$pass" || die "配置写入失败"
     ss_write_init; ok "配置已写入"
 
     step "启动服务"
     svc enable shadowsocks; _restart_wait shadowsocks "Shadowsocks 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    ss_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$SS_METHOD"
-    ss_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$SS_METHOD"
+    ss_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY"
+    ss_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY"
 }
 
 ss_configure() {
@@ -876,7 +877,7 @@ ss_configure() {
     [ -f "$SS_CONF" ] || { warn "未找到配置文件，请先安装 Shadowsocks"; return; }
     ss_read_conf
     _box "Shadowsocks" "当前配置"; hr
-    _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "加密" "$CONF_METHOD"
+    _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "加密" "$SS_METHOD"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
@@ -891,15 +892,15 @@ ss_configure() {
     svc stop shadowsocks
     _port_busy_guard "$new_port" "$CONF_PORT" shadowsocks || return
     cp "$SS_CONF" "$SS_CONF_BAK" 2>/dev/null
-    if ! ss_write_conf "$new_port" "$new_pass" "$CONF_METHOD"; then
+    if ! ss_write_conf "$new_port" "$new_pass"; then
         [ -f "$SS_CONF_BAK" ] && mv "$SS_CONF_BAK" "$SS_CONF"
         warn "配置写入失败，已恢复"; svc start shadowsocks; return
     fi
     rm -f "$SS_CONF_BAK"
     _restart_wait shadowsocks "新配置已生效"
     fetch_public_ip
-    ss_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$CONF_METHOD"
-    ss_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$CONF_METHOD"
+    ss_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY"
+    ss_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY"
 }
 
 ss_update() {
@@ -1130,7 +1131,7 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 ss_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SS_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   加密  ${C}${CONF_METHOD}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
                 [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
             fi
             _box "Shadowsocks Server" "管理" ;;

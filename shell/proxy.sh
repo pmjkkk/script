@@ -98,6 +98,12 @@ step() { _st=$((_st+1)); printf "${C}[%d/%d]${Z} %s\n" "$_st" "$_st_n" "$1"; }
 
 check_root()   { [ "$(id -u)" = "0" ] || die "请以 root 权限运行此脚本"; }
 check_alpine() { [ -f /etc/alpine-release ] || die "此脚本仅支持 Alpine Linux"; }
+check_arch()   {
+    case "$(uname -m)" in
+        aarch64|x86_64|amd64) ;;
+        *) die "不支持的系统架构: $(uname -m)（仅支持 x86_64 / aarch64）" ;;
+    esac
+}
 
 # 随机密钥（24 位字母数字）
 gen_secret() { tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24; }
@@ -107,7 +113,6 @@ _arch() {
     case "$(uname -m)" in
         aarch64)      [ "$1" = "go" ] && echo "arm64" || echo "aarch64" ;;
         x86_64|amd64) echo "amd64" ;;
-        *) die "不支持的系统架构: $(uname -m)（仅支持 x86_64 / aarch64）" ;;
     esac
 }
 
@@ -209,10 +214,12 @@ _chk_port() {
     return 0
 }
 
-# 字段校验：非空且不含空白  $1=值  $2=字段名
+# 字段校验：非空 / 不含空白 / 不含 JSON|YAML 危险字符  $1=值  $2=字段名
 _chk_field() {
     [ -z "$1" ] && { warn "$2 不能为空，操作取消"; return 1; }
     case "$1" in *' '*|*"	"*) warn "$2 不能含空白，操作取消"; return 1 ;; esac
+    # shellcheck disable=SC1003  # case 通配中 '\' 匹配反斜杠字符，非转义意图
+    case "$1" in *'"'*|*'\'*) warn "$2 不能含引号或反斜杠，操作取消"; return 1 ;; esac
     return 0
 }
 
@@ -254,7 +261,7 @@ _uninstall_common() {
 
 # 下载文件  $1=url  $2=目标路径  —— 跟随重定向 / HTTP 错误即失败 / 自动重试
 _fetch() {
-    curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 600 \
+    curl -fLs --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 600 \
         -o "$2" "$1"
 }
 
@@ -306,7 +313,7 @@ snell_get_version() {
 snell_read_conf() {
     [ -f "$SNELL_CONF" ] || return 1
     CONF_PORT=$(grep '^listen' "$SNELL_CONF" | sed 's/.*://')
-    CONF_PSK=$(grep  '^psk'    "$SNELL_CONF" | sed 's/.*= //')
+    CONF_PSK=$(grep  '^psk'    "$SNELL_CONF" | sed 's/^psk = //')
 }
 
 snell_write_conf() {
@@ -898,15 +905,14 @@ ss_configure() {
 ss_update() {
     printf "\n"
     ss_is_installed || { warn "Shadowsocks 未安装"; return; }
-    steps_init 3
+    steps_init 2
     _box "更新 Shadowsocks"; hr
     step "更新二进制"
     info "当前版本: $(ss_get_version)，通过 apk 升级..."
     svc stop shadowsocks
     apk update -q > /dev/null 2>&1
     apk upgrade -q shadowsocks-rust > /dev/null 2>&1 || true
-    step "启动服务"; _restart_wait shadowsocks "Shadowsocks 已启动（$(ss_get_version)）" "启动超时"
-    step "完成"; ok "已更新至 $(ss_get_version)"
+    step "启动服务"; _restart_wait shadowsocks "Shadowsocks 已更新至 $(ss_get_version)" "启动超时"
 }
 
 ss_uninstall() {
@@ -1176,6 +1182,7 @@ trap 'printf "\n${R}  已中断${Z}\n"; exit 130' INT
 main() {
     check_root
     check_alpine
+    check_arch
     while true; do
         show_main_menu; printf "\n"
         case "$CHOICE" in

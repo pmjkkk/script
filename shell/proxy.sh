@@ -252,6 +252,12 @@ _uninstall_common() {
     printf "\n"; ok "$name 已完全卸载"; printf "\n"
 }
 
+# 下载文件  $1=url  $2=目标路径  —— 跟随重定向 / HTTP 错误即失败 / 自动重试
+_fetch() {
+    curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 600 \
+        -o "$2" "$1"
+}
+
 # 从 GitHub API JSON 提取指定 asset 的 SHA256  $1=json  $2=asset 名
 _extract_sha256() {
     echo "$1" | awk -v name="$2" '
@@ -362,7 +368,7 @@ snell_fetch_latest() {
 snell_download() {
     local ver="${1:-$SNELL_VERSION}" zip="/tmp/snell-$$.zip"
     info "下载 Snell ${ver} ..."
-    wget -q "$(_snell_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
+    _fetch "$(_snell_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     _extract_with_rollback "$zip" "$SNELL_BIN" "$SNELL_BIN_BAK" snell-server Snell
     upx -d "$SNELL_BIN" > /dev/null 2>&1 || true
     ok "Snell ${ver} 部署完成"
@@ -447,7 +453,7 @@ at_download() {
     # $1=版本  $2=SHA256（可选，为空则单独查询）
     local ver="${1:-$AT_VERSION}" sha="${2:-}" zip="/tmp/anytls-$$.zip" actual json
     info "下载 AnyTLS ${ver} ..."
-    wget -q "$(_at_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
+    _fetch "$(_at_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     if [ -z "$sha" ]; then
         json=$(curl -sf --connect-timeout 5 --max-time 10 "${AT_API}/tags/${ver}")
         sha=$(_extract_sha256 "$json" "$(_at_asset "$ver")")
@@ -628,7 +634,7 @@ hy_fetch_latest() {
 hy_download() {
     local ver="${1:-$HY_VERSION}" bin="/tmp/hysteria-$$"
     info "下载 Hysteria2 ${ver} ..."
-    wget -q "$(_hy_url "$ver")" -O "$bin" || { rm -f "$bin"; die "下载失败，请检查网络"; }
+    _fetch "$(_hy_url "$ver")" "$bin" || { rm -f "$bin"; die "下载失败，请检查网络"; }
     [ -s "$bin" ] || { rm -f "$bin"; die "下载文件为空"; }
     [ -f "$HY_BIN" ] && cp "$HY_BIN" "$HY_BIN_BAK"
     if ! mv "$bin" "$HY_BIN"; then
@@ -654,7 +660,7 @@ snell_install() {
     steps_init 5
     _box "安装 Snell" "${SNELL_VERSION}"; hr
 
-    step "检查并安装依赖"; ensure_pkgs wget unzip curl gcompat upx
+    step "检查并安装依赖"; ensure_pkgs unzip curl gcompat upx
     step "下载并部署二进制"; snell_download "$SNELL_VERSION"
     step "创建系统用户"; _ensure_user "$SNELL_USER"
 
@@ -721,7 +727,7 @@ snell_update() {
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${new_ver}${Z}"; printf "\n"
     fi
     step "停止服务"; svc stop snell; ok "已停止"
-    step "下载并部署"; ensure_pkgs wget unzip curl gcompat upx; snell_download "$new_ver"; SNELL_VERSION="$new_ver"
+    step "下载并部署"; ensure_pkgs unzip curl gcompat upx; snell_download "$new_ver"; SNELL_VERSION="$new_ver"
     step "启动服务"; _restart_wait snell "Snell 已启动（$(snell_get_version)）" "启动超时"
     snell_read_conf
     [ -n "$CONF_PORT" ] && { fetch_public_ip; snell_write_info "$CONF_PORT" "$CONF_PSK" "$PUB_IP" "$PUB_COUNTRY"; snell_show_summary "$CONF_PORT" "$CONF_PSK" "$PUB_IP" "$PUB_COUNTRY"; }
@@ -745,7 +751,7 @@ at_install() {
     steps_init 5
     _box "安装 AnyTLS" "${AT_VERSION}"; hr
 
-    step "检查并安装依赖"; ensure_pkgs wget unzip curl
+    step "检查并安装依赖"; ensure_pkgs unzip curl
     step "下载并部署二进制"; at_download "$AT_VERSION"
     step "创建系统用户"; _ensure_user "$AT_USER"
 
@@ -816,7 +822,7 @@ at_update() {
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${AT_LATEST_VER}${Z}"; printf "\n"
     fi
     step "停止服务"; svc stop anytls; ok "已停止"
-    step "下载并部署"; ensure_pkgs wget unzip curl; at_download "$AT_LATEST_VER" "$AT_LATEST_SHA256"; AT_VERSION="$AT_LATEST_VER"
+    step "下载并部署"; ensure_pkgs unzip curl; at_download "$AT_LATEST_VER" "$AT_LATEST_SHA256"; AT_VERSION="$AT_LATEST_VER"
     step "启动服务"; _restart_wait anytls "AnyTLS 已启动（$(at_get_version)）" "启动超时"
     at_read_conf
     [ -n "$CONF_PORT" ] && { fetch_public_ip; at_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; at_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
@@ -934,7 +940,7 @@ hy_install() {
     steps_init 6
     _box "安装 Hysteria2" "${HY_VERSION}"; hr
 
-    step "检查并安装依赖"; ensure_pkgs wget curl openssl
+    step "检查并安装依赖"; ensure_pkgs curl openssl
     step "下载并部署二进制"; hy_download "$HY_VERSION"
     step "创建系统用户"; _ensure_user "$HY_USER"
 
@@ -1015,7 +1021,7 @@ hy_update() {
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${HY_LATEST_VER}${Z}"; printf "\n"
     fi
     step "停止服务"; svc stop hysteria; ok "已停止"
-    step "下载并部署"; ensure_pkgs wget curl; hy_download "$HY_LATEST_VER"; HY_VERSION="$HY_LATEST_VER"
+    step "下载并部署"; ensure_pkgs curl; hy_download "$HY_LATEST_VER"; HY_VERSION="$HY_LATEST_VER"
     step "启动服务"; _restart_wait hysteria "Hysteria2 已启动（$(hy_get_version)）" "启动超时"
     hy_read_conf
     [ -n "$CONF_PORT" ] && { fetch_public_ip; hy_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; hy_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }

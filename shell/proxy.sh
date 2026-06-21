@@ -26,6 +26,30 @@ readonly AT_API="https://api.github.com/repos/anytls/anytls-go/releases"
 readonly AT_DEFAULT_SNI="addons.mozilla.org"
 AT_VERSION="v0.0.12"
 
+# ── Shadowsocks (shadowsocks-rust，apk) ──────────────────────────────────────
+readonly SS_BIN="/usr/bin/ssserver"
+readonly SS_CONF="/etc/shadowsocks/config.json"
+readonly SS_CONF_BAK="${SS_CONF}.bak"
+readonly SS_INFO="/etc/shadowsocks/config.txt"
+readonly SS_INIT="/etc/init.d/shadowsocks"
+readonly SS_USER="ss"
+readonly SS_METHOD="aes-256-gcm"
+
+# ── Hysteria2 ────────────────────────────────────────────────────────────────
+readonly HY_BIN="/usr/local/bin/hysteria"
+readonly HY_BIN_BAK="${HY_BIN}.bak"
+readonly HY_DIR="/etc/hysteria"
+readonly HY_CONF="${HY_DIR}/config.yaml"
+readonly HY_CONF_BAK="${HY_CONF}.bak"
+readonly HY_CERT="${HY_DIR}/server.crt"
+readonly HY_KEY="${HY_DIR}/server.key"
+readonly HY_INFO="${HY_DIR}/config.txt"
+readonly HY_INIT="/etc/init.d/hysteria"
+readonly HY_USER="hysteria"
+readonly HY_API="https://api.github.com/repos/apernet/hysteria/releases"
+readonly HY_DEFAULT_SNI="bing.com"
+HY_VERSION="v2.9.2"
+
 # ── ANSI ────────────────────────────────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' Y='\033[0;33m' C='\033[0;36m'
 B='\033[1m'    D='\033[2m'    W='\033[1;37m' Z='\033[0m'
@@ -389,6 +413,207 @@ at_download() {
 }
 
 ###############################################################################
+# §4b  Shadowsocks (shadowsocks-rust)
+###############################################################################
+
+ss_is_installed() { [ -f "$SS_BIN" ] && [ -f "$SS_CONF" ]; }
+ss_is_running()   { [ -f "$SS_INIT" ] && rc-service shadowsocks status > /dev/null 2>&1; }
+
+ss_get_version() {
+    [ -f "$SS_BIN" ] || { echo "未安装"; return; }
+    "$SS_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 \
+        | sed 's/^/v/' || echo "未知"
+}
+
+ss_read_conf() {
+    [ -f "$SS_CONF" ] || return 1
+    CONF_PORT=$(grep '"server_port"' "$SS_CONF" | grep -oE '[0-9]+')
+    CONF_PASS=$(grep '"password"'    "$SS_CONF" | sed 's/.*: *"//; s/".*//')
+    CONF_METHOD=$(grep '"method"'    "$SS_CONF" | sed 's/.*: *"//; s/".*//')
+    [ -z "$CONF_METHOD" ] && CONF_METHOD="$SS_METHOD"
+    return 0
+}
+
+ss_write_conf() {
+    # $1=port $2=password $3=method
+    mkdir -p /etc/shadowsocks || return 1
+    cat > "$SS_CONF" << EOF
+{
+    "server": "::",
+    "server_port": $1,
+    "password": "$2",
+    "method": "$3",
+    "mode": "tcp_and_udp",
+    "fast_open": false
+}
+EOF
+}
+
+ss_write_info() {
+    # $1=port $2=pass $3=ip $4=country $5=method
+    printf '%s = ss, %s, %s, encrypt-method=%s, password=%s, udp-relay=true\n' \
+        "$4" "$3" "$1" "$5" "$2" > "$SS_INFO"
+}
+
+ss_write_init() {
+    cat > "$SS_INIT" << 'EOF'
+#!/sbin/openrc-run
+name="shadowsocks"
+description="Shadowsocks-rust Server"
+command="/usr/bin/ssserver"
+command_args="-c /etc/shadowsocks/config.json"
+command_user="ss"
+supervisor="supervise-daemon"
+EOF
+    chmod +x "$SS_INIT"
+}
+
+ss_show_summary() {
+    # $1=port $2=pass $3=ip $4=country $5=method
+    local uri b64
+    b64=$(printf '%s:%s' "$5" "$2" | base64 | tr -d '\n')
+    uri="ss://${b64}@${3}:${1}#${4}"
+    printf "\n"
+    _box "Shadowsocks" "配置摘要"
+    hr
+    printf "    ${D}地区${Z}  %s\n" "$4"
+    printf "    ${D}IP  ${Z}  %s\n" "$3"
+    printf "    ${D}端口${Z}  %s\n" "$1"
+    printf "    ${D}密码${Z}  %s\n" "$2"
+    printf "    ${D}加密${Z}  %s\n" "$5"
+    hr
+    printf "  ${D}Surge 节点:${Z}\n"
+    printf "  ${C}%s = ss, %s, %s, encrypt-method=%s, password=%s, udp-relay=true${Z}\n" \
+        "$4" "$3" "$1" "$5" "$2"
+    printf "  ${D}SS URI:${Z}\n"
+    printf "  ${C}%s${Z}\n" "$uri"
+    hr; printf "\n"
+}
+
+###############################################################################
+# §4c  Hysteria2
+###############################################################################
+
+hy_is_installed() { [ -f "$HY_BIN" ]; }
+hy_is_running()   { [ -f "$HY_INIT" ] && rc-service hysteria status > /dev/null 2>&1; }
+
+hy_get_version() {
+    hy_is_installed || { echo "未安装"; return; }
+    "$HY_BIN" version 2>&1 | grep -iE '^version' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' \
+        | head -1 | sed 's/^v*/v/' || echo "未知"
+}
+
+hy_read_conf() {
+    [ -f "$HY_CONF" ] || return 1
+    CONF_PORT=$(grep '^listen:' "$HY_CONF" | grep -oE '[0-9]+')
+    CONF_PASS=$(grep -A1 '^auth:' "$HY_CONF" | grep 'password:' | sed 's/.*password: *//')
+    CONF_SNI=$(grep '^# sni:' "$HY_CONF" | sed 's/^# sni: *//')
+    [ -z "$CONF_SNI" ] && CONF_SNI="$HY_DEFAULT_SNI"
+    return 0
+}
+
+hy_write_conf() {
+    # $1=port $2=password $3=sni
+    mkdir -p "$HY_DIR" || return 1
+    cat > "$HY_CONF" << EOF
+# sni: $3
+listen: :$1
+
+tls:
+  cert: $HY_CERT
+  key: $HY_KEY
+
+auth:
+  type: password
+  password: $2
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://$3
+    rewriteHost: true
+EOF
+}
+
+hy_write_info() {
+    # $1=port $2=pass $3=ip $4=country $5=sni
+    printf '%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true, download-bandwidth=200, upload-bandwidth=50\n' \
+        "$4" "$3" "$1" "$2" "$5" > "$HY_INFO"
+}
+
+hy_write_init() {
+    cat > "$HY_INIT" << 'EOF'
+#!/sbin/openrc-run
+name="hysteria"
+description="Hysteria2 Proxy Server"
+command="/usr/local/bin/hysteria"
+command_args="server -c /etc/hysteria/config.yaml"
+command_user="hysteria"
+supervisor="supervise-daemon"
+EOF
+    chmod +x "$HY_INIT"
+}
+
+# 生成自签证书（10 年）→ HY_CERT / HY_KEY
+hy_gen_cert() {
+    local cn="${1:-$HY_DEFAULT_SNI}"
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+        -keyout "$HY_KEY" -out "$HY_CERT" -days 3650 -nodes \
+        -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
+        || die "自签证书生成失败"
+    chmod 600 "$HY_KEY"
+}
+
+hy_show_summary() {
+    # $1=port $2=pass $3=ip $4=country $5=sni
+    printf "\n"
+    _box "Hysteria2" "配置摘要"
+    hr
+    printf "    ${D}地区${Z}  %s\n" "$4"
+    printf "    ${D}IP  ${Z}  %s\n" "$3"
+    printf "    ${D}端口${Z}  %s\n" "$1"
+    printf "    ${D}密码${Z}  %s\n" "$2"
+    printf "    ${D}SNI ${Z}  %s\n" "$5"
+    hr
+    printf "  ${D}Surge 节点:${Z}\n"
+    printf "  ${C}%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true${Z}\n" \
+        "$4" "$3" "$1" "$2" "$5"
+    printf "  ${D}通用 URI:${Z}\n"
+    printf "  ${C}hysteria2://%s@%s:%s?insecure=1&sni=%s#%s${Z}\n" \
+        "$2" "$3" "$1" "$5" "$4"
+    hr; printf "\n"
+}
+
+_hy_url()   { printf "https://github.com/apernet/hysteria/releases/download/app/%s/hysteria-linux-%s" "$1" "$(_arch go)"; }
+
+# 单次请求 /latest → HY_LATEST_VER
+hy_fetch_latest() {
+    local json
+    json=$(curl -sf --connect-timeout 5 --max-time 10 "${HY_API}/latest")
+    if [ -z "$json" ]; then
+        warn "无法访问 GitHub API，回退到内置版本 ${HY_VERSION}"
+        HY_LATEST_VER="$HY_VERSION"; return
+    fi
+    HY_LATEST_VER=$(echo "$json" | grep '"tag_name"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+    [ -z "$HY_LATEST_VER" ] && { warn "无法解析最新版本"; HY_LATEST_VER="$HY_VERSION"; }
+}
+
+hy_download() {
+    local ver="${1:-$HY_VERSION}" bin="/tmp/hysteria-$$"
+    info "下载 Hysteria2 ${ver} ..."
+    wget -q "$(_hy_url "$ver")" -O "$bin" || { rm -f "$bin"; die "下载失败，请检查网络"; }
+    [ -s "$bin" ] || { rm -f "$bin"; die "下载文件为空"; }
+    [ -f "$HY_BIN" ] && cp "$HY_BIN" "$HY_BIN_BAK"
+    if ! mv "$bin" "$HY_BIN"; then
+        [ -f "$HY_BIN_BAK" ] && mv "$HY_BIN_BAK" "$HY_BIN"
+        die "部署 Hysteria2 失败"
+    fi
+    rm -f "$HY_BIN_BAK"
+    chmod +x "$HY_BIN"
+    ok "Hysteria2 ${ver} 部署完成"
+}
+
+###############################################################################
 # §5  Snell 动作
 ###############################################################################
 
@@ -628,6 +853,253 @@ at_uninstall() {
 }
 
 ###############################################################################
+# §6b  Shadowsocks 动作
+###############################################################################
+
+ss_install() {
+    printf "\n"
+    if ss_is_installed; then
+        warn "Shadowsocks 已安装（$(ss_get_version)），继续将覆盖现有配置"
+        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        printf "\n"
+    fi
+    steps_init 5
+    _box "安装 Shadowsocks" "shadowsocks-rust"
+    hr
+
+    step "检查并安装依赖"; ensure_pkgs shadowsocks-rust curl
+    [ -f "$SS_BIN" ] || die "ssserver 未找到，apk 安装可能失败"
+    step "准备二进制"; ok "shadowsocks-rust 已就绪（$(ss_get_version)）"
+
+    step "创建系统用户"
+    if id "$SS_USER" > /dev/null 2>&1; then
+        info "用户 ${SS_USER} 已存在，跳过"
+    else
+        adduser -D -H -s /sbin/nologin "$SS_USER"; ok "用户 ${SS_USER} 已创建"
+    fi
+
+    step "生成配置"
+    local port pass
+    port=$(gen_port); pass=$(gen_secret)
+    ss_write_conf "$port" "$pass" "$SS_METHOD" || die "配置写入失败"
+    ss_write_init; ok "配置已写入"
+
+    step "启动服务"
+    svc enable shadowsocks; svc start shadowsocks
+    if _wait_for_service shadowsocks; then ok "Shadowsocks 已启动"; else warn "启动超时，请手动检查"; fi
+
+    fetch_public_ip
+    ss_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$SS_METHOD"
+    ss_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$SS_METHOD"
+}
+
+ss_configure() {
+    printf "\n"
+    [ -f "$SS_CONF" ] || { warn "未找到配置文件，请先安装 Shadowsocks"; return; }
+    ss_read_conf
+    _box "Shadowsocks" "当前配置"
+    hr
+    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
+    printf "    ${D}密码${Z}  %s\n" "$CONF_PASS"
+    printf "    ${D}加密${Z}  %s\n" "$CONF_METHOD"
+    hr; printf "\n"
+    confirm "修改配置？" "n" || return
+    printf "\n${D}  回车保留当前值${Z}\n\n"
+    ask "端口" "$CONF_PORT"; local new_port="$REPLY"
+    ask "密码" "$CONF_PASS"; local new_pass="$REPLY"
+    printf "\n"
+    case "$new_port" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return ;; esac
+    if [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then warn "端口范围 1–65535，操作取消"; return; fi
+    [ -z "$new_pass" ] && { warn "密码不能为空，操作取消"; return; }
+    case "$new_pass" in *' '*|*'	'*) warn "密码不能含空白，操作取消"; return ;; esac
+    if [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ]; then info "配置未变更"; return; fi
+
+    svc stop shadowsocks
+    if [ "$new_port" != "$CONF_PORT" ] && _port_in_use "$new_port"; then
+        warn "端口 ${new_port} 已被占用"; svc start shadowsocks; return
+    fi
+    cp "$SS_CONF" "$SS_CONF_BAK" 2>/dev/null
+    if ! ss_write_conf "$new_port" "$new_pass" "$CONF_METHOD"; then
+        [ -f "$SS_CONF_BAK" ] && mv "$SS_CONF_BAK" "$SS_CONF"
+        warn "配置写入失败，已恢复"; svc start shadowsocks; return
+    fi
+    rm -f "$SS_CONF_BAK"
+    svc start shadowsocks
+    if _wait_for_service shadowsocks; then ok "新配置已生效"; else warn "重启超时，请手动检查"; fi
+    fetch_public_ip
+    ss_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$CONF_METHOD"
+    ss_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$CONF_METHOD"
+}
+
+ss_update() {
+    printf "\n"
+    ss_is_installed || { warn "Shadowsocks 未安装"; return; }
+    steps_init 3
+    _box "更新 Shadowsocks"
+    hr
+    step "更新二进制"
+    local old_ver
+    old_ver=$(ss_get_version)
+    info "当前版本: ${old_ver}，通过 apk 升级..."
+    svc stop shadowsocks
+    apk update -q > /dev/null 2>&1
+    apk upgrade -q shadowsocks-rust > /dev/null 2>&1 || true
+    step "启动服务"; svc start shadowsocks
+    if _wait_for_service shadowsocks; then ok "Shadowsocks 已启动（$(ss_get_version)）"; else warn "启动超时"; fi
+    step "完成"; ok "已更新至 $(ss_get_version)"
+}
+
+ss_uninstall() {
+    printf "\n"
+    _box "卸载 Shadowsocks"
+    hr; printf "\n"
+    warn "将停止服务、删除配置目录及系统用户（保留 apk 包），操作不可恢复"; printf "\n"
+    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    printf "\n"
+    svc stop shadowsocks; svc disable shadowsocks
+    rm -f "$SS_INIT"
+    rm -rf /etc/shadowsocks
+    _del_user "$SS_USER"
+    if confirm "是否同时卸载 shadowsocks-rust apk 包？" "n"; then
+        apk del -q shadowsocks-rust > /dev/null 2>&1 || true
+        ok "apk 包已卸载"
+    fi
+    printf "\n"; ok "Shadowsocks 已卸载"; printf "\n"
+}
+
+###############################################################################
+# §6c  Hysteria2 动作
+###############################################################################
+
+hy_install() {
+    printf "\n"
+    if hy_is_installed; then
+        warn "Hysteria2 已安装（$(hy_get_version)），继续将覆盖现有配置"
+        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        printf "\n"
+    fi
+    steps_init 6
+    _box "安装 Hysteria2" "${HY_VERSION}"
+    hr
+
+    step "检查并安装依赖"; ensure_pkgs wget curl openssl
+    step "下载并部署二进制"; hy_download "$HY_VERSION"
+
+    step "创建系统用户"
+    if id "$HY_USER" > /dev/null 2>&1; then
+        info "用户 ${HY_USER} 已存在，跳过"
+    else
+        adduser -D -H -s /sbin/nologin "$HY_USER"; ok "用户 ${HY_USER} 已创建"
+    fi
+
+    step "生成自签证书"
+    mkdir -p "$HY_DIR"
+    hy_gen_cert "$HY_DEFAULT_SNI"
+    chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
+    ok "证书已生成（CN=${HY_DEFAULT_SNI}）"
+
+    step "生成配置"
+    local port pass
+    port=$(gen_port); pass=$(gen_secret)
+    hy_write_conf "$port" "$pass" "$HY_DEFAULT_SNI" || die "配置写入失败"
+    hy_write_init; ok "配置已写入"
+
+    step "启动服务"
+    svc enable hysteria; svc start hysteria
+    if _wait_for_service hysteria; then ok "Hysteria2 已启动"; else warn "启动超时，请手动检查"; fi
+
+    fetch_public_ip
+    hy_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$HY_DEFAULT_SNI"
+    hy_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$HY_DEFAULT_SNI"
+}
+
+hy_configure() {
+    printf "\n"
+    [ -f "$HY_CONF" ] || { warn "未找到配置文件，请先安装 Hysteria2"; return; }
+    hy_read_conf
+    _box "Hysteria2" "当前配置"
+    hr
+    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
+    printf "    ${D}密码${Z}  %s\n" "$CONF_PASS"
+    printf "    ${D}SNI ${Z}  %s\n" "$CONF_SNI"
+    hr; printf "\n"
+    confirm "修改配置？" "n" || return
+    printf "\n${D}  回车保留当前值${Z}\n\n"
+    ask "端口" "$CONF_PORT"; local new_port="$REPLY"
+    ask "密码" "$CONF_PASS"; local new_pass="$REPLY"
+    ask "SNI"  "$CONF_SNI";  local new_sni="$REPLY"
+    printf "\n"
+    case "$new_port" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return ;; esac
+    if [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then warn "端口范围 1–65535，操作取消"; return; fi
+    [ -z "$new_pass" ] && { warn "密码不能为空，操作取消"; return; }
+    case "$new_pass" in *' '*|*'	'*) warn "密码不能含空白，操作取消"; return ;; esac
+    [ -z "$new_sni" ] && { warn "SNI 不能为空，操作取消"; return; }
+    if [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ] && [ "$new_sni" = "$CONF_SNI" ]; then
+        info "配置未变更"; return
+    fi
+
+    svc stop hysteria
+    if [ "$new_port" != "$CONF_PORT" ] && _port_in_use "$new_port"; then
+        warn "端口 ${new_port} 已被占用"; svc start hysteria; return
+    fi
+    cp "$HY_CONF" "$HY_CONF_BAK" 2>/dev/null
+    if [ "$new_sni" != "$CONF_SNI" ]; then
+        hy_gen_cert "$new_sni"
+        chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
+    fi
+    if ! hy_write_conf "$new_port" "$new_pass" "$new_sni"; then
+        [ -f "$HY_CONF_BAK" ] && mv "$HY_CONF_BAK" "$HY_CONF"
+        warn "配置写入失败，已恢复"; svc start hysteria; return
+    fi
+    rm -f "$HY_CONF_BAK"
+    svc start hysteria
+    if _wait_for_service hysteria; then ok "新配置已生效"; else warn "重启超时，请手动检查"; fi
+    fetch_public_ip
+    hy_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
+    hy_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
+}
+
+hy_update() {
+    printf "\n"
+    hy_is_installed || { warn "Hysteria2 未安装"; return; }
+    steps_init 4
+    _box "更新 Hysteria2"
+    hr
+    step "查询最新版本"
+    local old_ver
+    old_ver=$(hy_get_version)
+    info "当前版本: ${old_ver}，查询中..."
+    hy_fetch_latest
+    if [ "$old_ver" = "$HY_LATEST_VER" ]; then
+        printf "\n"; warn "已是最新版本 (${old_ver})"
+        confirm "仍要重新安装？" "n" || { ok "已取消"; return; }
+        printf "\n"
+    else
+        ok "发现新版本: ${D}${old_ver}${Z} → ${G}${HY_LATEST_VER}${Z}"; printf "\n"
+    fi
+    step "停止服务"; svc stop hysteria; ok "已停止"
+    step "下载并部署"; ensure_pkgs wget curl; hy_download "$HY_LATEST_VER"; HY_VERSION="$HY_LATEST_VER"
+    step "启动服务"; svc start hysteria
+    if _wait_for_service hysteria; then ok "Hysteria2 已启动（$(hy_get_version)）"; else warn "启动超时"; fi
+    hy_read_conf
+    [ -n "$CONF_PORT" ] && { fetch_public_ip; hy_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; hy_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
+}
+
+hy_uninstall() {
+    printf "\n"
+    _box "卸载 Hysteria2"
+    hr; printf "\n"
+    warn "将删除二进制、配置目录、证书及系统用户，操作不可恢复"; printf "\n"
+    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    printf "\n"
+    svc stop hysteria; svc disable hysteria
+    rm -f "$HY_INIT" "$HY_BIN" "$HY_BIN_BAK"
+    rm -rf "$HY_DIR"
+    _del_user "$HY_USER"
+    printf "\n"; ok "Hysteria2 已完全卸载"; printf "\n"
+}
+
+###############################################################################
 # §7  菜单
 ###############################################################################
 
@@ -665,21 +1137,27 @@ _svc_menu_items() {
 
 show_main_menu() {
     clear
-    local si=0 sr=0 ai=0 ar=0
+    local si=0 sr=0 ai=0 ar=0 ssi=0 ssr=0 hi=0 hyr=0
     snell_is_installed && si=1; snell_is_running && sr=1
     at_is_installed    && ai=1; at_is_running    && ar=1
-    _box "代理服务管理" "Snell · AnyTLS"
+    ss_is_installed    && ssi=1; ss_is_running   && ssr=1
+    hy_is_installed    && hi=1; hy_is_running    && hyr=1
+    _box "代理服务管理" "Snell · AnyTLS · SS · Hysteria2"
     printf "    ${D}Alpine Linux 专用${Z}\n"
     hr
-    printf "    ${W}Snell ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
-    printf "    ${W}AnyTLS${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
+    printf "    ${W}Snell      ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
+    printf "    ${W}AnyTLS     ${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
+    printf "    ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
+    printf "    ${W}Hysteria2  ${Z}  %b\n" "$(_status_line $hi $hyr "$(hy_get_version)")"
     hr
     printf "\n"
     printf "   ${C}1${Z}  管理 Snell\n"
     printf "   ${C}2${Z}  管理 AnyTLS\n"
+    printf "   ${C}3${Z}  管理 Shadowsocks\n"
+    printf "   ${C}4${Z}  管理 Hysteria2\n"
     printf "   ${D}0  退出${Z}\n\n"
     hr
-    printf "   请选择 ${D}[0-2]${Z} ${W}❯${Z} "
+    printf "   请选择 ${D}[0-4]${Z} ${W}❯${Z} "
     read -r CHOICE
 }
 
@@ -697,7 +1175,7 @@ show_svc_menu() {
             [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
         fi
         _box "Snell Server" "管理"
-    else
+    elif [ "$p" = "at" ]; then
         at_is_installed && inst=1; at_is_running && run=1
         ver=$(at_get_version)
         if [ $inst -eq 1 ]; then
@@ -707,6 +1185,26 @@ show_svc_menu() {
             [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
         fi
         _box "AnyTLS Server" "管理"
+    elif [ "$p" = "ss" ]; then
+        ss_is_installed && inst=1; ss_is_running && run=1
+        ver=$(ss_get_version)
+        if [ $inst -eq 1 ]; then
+            ss_read_conf 2>/dev/null
+            ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SS_INFO" 2>/dev/null | head -1)
+            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   加密  ${C}${CONF_METHOD}${Z}"
+            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+        fi
+        _box "Shadowsocks Server" "管理"
+    else
+        hy_is_installed && inst=1; hy_is_running && run=1
+        ver=$(hy_get_version)
+        if [ $inst -eq 1 ]; then
+            hy_read_conf 2>/dev/null
+            ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$HY_INFO" 2>/dev/null | head -1)
+            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+        fi
+        _box "Hysteria2 Server" "管理"
     fi
     hr
     printf "    状态  %b\n" "$(_status_line $inst $run "$ver")"
@@ -725,6 +1223,10 @@ _run_submenu() {
             snell_3) snell_update    ;; snell_4) snell_uninstall ;;
             at_1)    at_install      ;; at_2)    at_configure    ;;
             at_3)    at_update       ;; at_4)    at_uninstall    ;;
+            ss_1)    ss_install      ;; ss_2)    ss_configure    ;;
+            ss_3)    ss_update       ;; ss_4)    ss_uninstall    ;;
+            hy_1)    hy_install      ;; hy_2)    hy_configure    ;;
+            hy_3)    hy_update       ;; hy_4)    hy_uninstall    ;;
             *_0)     return ;;
             *) warn "无效选项：${CHOICE}" ;;
         esac
@@ -746,6 +1248,8 @@ main() {
         case "$CHOICE" in
             1) _run_submenu snell ;;
             2) _run_submenu at    ;;
+            3) _run_submenu ss    ;;
+            4) _run_submenu hy    ;;
             0) ok "再见"; printf "\n"; exit 0 ;;
             *) warn "无效选项：${CHOICE}" ;;
         esac

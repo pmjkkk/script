@@ -216,12 +216,12 @@ _chk_port() {
     return 0
 }
 
-# 字段校验：非空 / 不含空白 / 不含 JSON|YAML 危险字符  $1=值  $2=字段名
+# 字段校验：非空 / 不含空白 / 不含配置文件危险字符  $1=值  $2=字段名
 _chk_field() {
     [ -z "$1" ] && { warn "$2 不能为空，操作取消"; return 1; }
     case "$1" in *' '*|*"	"*) warn "$2 不能含空白，操作取消"; return 1 ;; esac
-    # shellcheck disable=SC1003  # case 通配中 '\' 匹配反斜杠字符，非转义意图
-    case "$1" in *'"'*|*'\'*) warn "$2 不能含引号或反斜杠，操作取消"; return 1 ;; esac
+    # shellcheck disable=SC1003
+    case "$1" in *'"'*|*'\'*|*"#"*) warn "$2 不能含 \" \\ # 或单引号，操作取消"; return 1 ;; esac
     return 0
 }
 
@@ -230,7 +230,8 @@ _ensure_user() {
     if id "$1" > /dev/null 2>&1; then
         info "用户 $1 已存在，跳过"
     else
-        adduser -D -H -s /sbin/nologin "$1" && ok "用户 $1 已创建"
+        adduser -D -H -s /sbin/nologin "$1" || die "创建用户 $1 失败"
+        ok "用户 $1 已创建"
     fi
 }
 
@@ -559,7 +560,7 @@ hy_get_version() {
 hy_read_conf() {
     [ -f "$HY_CONF" ] || return 1
     CONF_PORT=$(grep '^listen:' "$HY_CONF" | grep -oE '[0-9]+')
-    CONF_PASS=$(grep '^[[:space:]]*password:' "$HY_CONF" | head -1 | sed 's/.*password:[[:space:]]*//')
+    CONF_PASS=$(grep '^[[:space:]]*password:' "$HY_CONF" | head -1 | sed "s/.*password:[[:space:]]*'\\{0,1\\}//; s/'\\{0,1\\}\$//")
     CONF_SNI=$(grep '^# sni:' "$HY_CONF" | sed 's/^# sni:[[:space:]]*//')
     [ -z "$CONF_SNI" ] && CONF_SNI="$DEFAULT_SNI"
     return 0
@@ -578,7 +579,7 @@ tls:
 
 auth:
   type: password
-  password: $2
+  password: '$2'
 
 masquerade:
   type: proxy
@@ -880,10 +881,11 @@ ss_configure() {
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "加密" "$SS_METHOD"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
-    printf "\n${D}  回车保留当前值${Z}\n\n"
+    printf "\n${D}  回车保留当前值，输入 gen 自动生成新密钥${Z}\n\n"
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
-    ask "密码" "$CONF_PASS"; new_pass="$REPLY"
+    ask "密码(base64)" "$CONF_PASS"; new_pass="$REPLY"
+    [ "$new_pass" = "gen" ] && { new_pass=$(gen_ss_pass); info "已生成新密钥: ${new_pass}"; }
     printf "\n"
     _chk_port "$new_port" || return
     _chk_field "$new_pass" "密码" || return
@@ -995,13 +997,16 @@ hy_configure() {
     svc stop hysteria
     _port_busy_guard "$new_port" "$CONF_PORT" hysteria || return
     cp "$HY_CONF" "$HY_CONF_BAK" 2>/dev/null
-    if [ "$new_sni" != "$CONF_SNI" ]; then
-        hy_gen_cert "$new_sni"
-        chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
-    fi
     if ! hy_write_conf "$new_port" "$new_pass" "$new_sni"; then
         [ -f "$HY_CONF_BAK" ] && mv "$HY_CONF_BAK" "$HY_CONF"
         warn "配置写入失败，已恢复"; svc start hysteria; return
+    fi
+    if [ "$new_sni" != "$CONF_SNI" ]; then
+        hy_gen_cert "$new_sni" || {
+            [ -f "$HY_CONF_BAK" ] && mv "$HY_CONF_BAK" "$HY_CONF"
+            warn "证书生成失败，已回滚配置"; svc start hysteria; return
+        }
+        chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
     fi
     rm -f "$HY_CONF_BAK"
     _restart_wait hysteria "新配置已生效"

@@ -280,7 +280,7 @@ snell_fetch_latest() {
 snell_download() {
     local ver="${1:-$SNELL_VERSION}" zip="/tmp/snell-$$.zip"
     info "下载 Snell ${ver} ..."
-    wget "$(_snell_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
+    wget -q "$(_snell_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     _extract_with_rollback "$zip" "$SNELL_BIN" "$SNELL_BIN_BAK" snell-server Snell
     upx -d "$SNELL_BIN" > /dev/null 2>&1 || true
     ok "Snell ${ver} 部署完成"
@@ -371,7 +371,7 @@ at_download() {
     # $1=版本  $2=SHA256（可选，为空则单独查询）
     local ver="${1:-$AT_VERSION}" sha="${2:-}" zip="/tmp/anytls-$$.zip" actual
     info "下载 AnyTLS ${ver} ..."
-    wget "$(_at_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
+    wget -q "$(_at_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     if [ -z "$sha" ]; then
         local json
         json=$(curl -sf --connect-timeout 5 --max-time 10 "${AT_API}/tags/${ver}")

@@ -1088,19 +1088,19 @@ show_main_menu() {
     at_is_installed    && ai=1;  at_is_running    && ar=1
     ss_is_installed    && ssi=1; ss_is_running    && ssr=1
     hy_is_installed    && hi=1;  hy_is_running     && hyr=1
-    _box "代理服务管理" "Snell · AnyTLS · SS · Hysteria2"
+    _box "代理服务管理" "Snell · SS · Hysteria2 · AnyTLS"
     printf "    ${D}Alpine Linux 专用${Z}\n"
     hr
     printf "    ${W}Snell      ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
-    printf "    ${W}AnyTLS     ${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
     printf "    ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
     printf "    ${W}Hysteria2  ${Z}  %b\n" "$(_status_line $hi $hyr "$(hy_get_version)")"
+    printf "    ${W}AnyTLS     ${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
     hr
     printf "\n"
     printf "   ${C}1${Z}  管理 Snell\n"
-    printf "   ${C}2${Z}  管理 AnyTLS\n"
-    printf "   ${C}3${Z}  管理 Shadowsocks\n"
-    printf "   ${C}4${Z}  管理 Hysteria2\n"
+    printf "   ${C}2${Z}  管理 Shadowsocks\n"
+    printf "   ${C}3${Z}  管理 Hysteria2\n"
+    printf "   ${C}4${Z}  管理 AnyTLS\n"
     printf "   ${D}0  退出${Z}\n\n"
     hr
     printf "   请选择 ${D}[0-4]${Z} ${W}❯${Z} "
@@ -1195,9 +1195,9 @@ main() {
         show_main_menu; printf "\n"
         case "$CHOICE" in
             1) _run_submenu snell ;;
-            2) _run_submenu at    ;;
-            3) _run_submenu ss    ;;
-            4) _run_submenu hy    ;;
+            2) _run_submenu ss    ;;
+            3) _run_submenu hy    ;;
+            4) _run_submenu at    ;;
             0) ok "再见"; printf "\n"; exit 0 ;;
             *) warn "无效选项：${CHOICE}" ;;
         esac

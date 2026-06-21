@@ -1,8 +1,12 @@
 #!/bin/ash
 # shellcheck disable=SC2059  # ANSI 颜色变量出现在 printf 格式串中，属故意为之
 #=============================================================================
-# proxy.sh  ·  Snell & AnyTLS 管理工具  ·  Alpine Linux 专用
+# proxy.sh  ·  多协议代理管理工具  ·  Alpine Linux 专用
+#   Snell · AnyTLS · Shadowsocks · Hysteria2
 #=============================================================================
+
+# ── 公共 ──────────────────────────────────────────────────────────────────
+readonly DEFAULT_SNI="addons.mozilla.org"
 
 # ── Snell ───────────────────────────────────────────────────────────────────
 readonly SNELL_BIN="/usr/local/bin/snell-server"
@@ -23,7 +27,6 @@ readonly AT_INFO="/etc/anytls/config.txt"
 readonly AT_INIT="/etc/init.d/anytls"
 readonly AT_USER="anytls"
 readonly AT_API="https://api.github.com/repos/anytls/anytls-go/releases"
-readonly AT_DEFAULT_SNI="addons.mozilla.org"
 AT_VERSION="v0.0.12"
 
 # ── Shadowsocks (shadowsocks-rust，apk) ──────────────────────────────────────
@@ -47,7 +50,6 @@ readonly HY_INFO="${HY_DIR}/config.txt"
 readonly HY_INIT="/etc/init.d/hysteria"
 readonly HY_USER="hysteria"
 readonly HY_API="https://api.github.com/repos/apernet/hysteria/releases"
-readonly HY_DEFAULT_SNI="bing.com"
 HY_VERSION="v2.9.2"
 
 # ── ANSI ────────────────────────────────────────────────────────────────────
@@ -57,11 +59,11 @@ B='\033[1m'    D='\033[2m'    W='\033[1;37m' Z='\033[0m'
 ###############################################################################
 # §1  输出 & 交互
 ###############################################################################
-
-die()  { printf "\n${R}✗ %s${Z}\n" "$*"; exit 1; }
+# 诊断信息统一走 stderr，避免污染 $(func) 命令替换的返回值
+die()  { printf "\n${R}✗ %s${Z}\n" "$*" >&2; exit 1; }
+warn() { printf "${Y}⚠ %s${Z}\n" "$*" >&2; }
+info() { printf "${C}! %s${Z}\n" "$*" >&2; }
 ok()   { printf "${G}✓ %s${Z}\n" "$*"; }
-warn() { printf "${Y}⚠ %s${Z}\n" "$*"; }
-info() { printf "${C}! %s${Z}\n" "$*"; }
 hr()   { printf "${D}  ──────────────────────────────────────────${Z}\n"; }
 
 # confirm  $1=提示  $2=默认 y|n（默认 n）
@@ -141,6 +143,16 @@ fetch_public_ip() {
     fi
 }
 
+_port_in_use() {
+    if   command -v ss      > /dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | grep -qE ":${1}( |$)"
+    elif command -v netstat > /dev/null 2>&1; then
+        netstat -tlnp 2>/dev/null | grep -qE ":${1}( |$)"
+    else
+        return 1
+    fi
+}
+
 # 随机可用端口（带冲突检测）
 gen_port() {
     local port seed attempts=0
@@ -151,16 +163,6 @@ gen_port() {
         attempts=$((attempts + 1))
     done
     die "无法找到可用端口，请手动指定"
-}
-
-_port_in_use() {
-    if   command -v ss      > /dev/null 2>&1; then
-        ss -tlnp 2>/dev/null | grep -qE ":${1}( |$)"
-    elif command -v netstat > /dev/null 2>&1; then
-        netstat -tlnp 2>/dev/null | grep -qE ":${1}( |$)"
-    else
-        return 1
-    fi
 }
 
 # 服务就绪等待（点动画），10s 超时；$1=服务名
@@ -183,6 +185,46 @@ svc() {
     esac
 }
 
+# 启动服务并等待就绪  $1=服务名  $2=成功提示  [$3=失败提示]
+_restart_wait() {
+    svc start "$1"
+    if _wait_for_service "$1"; then ok "$2"; else warn "${3:-重启超时，请手动检查}"; fi
+}
+
+# 端口占用守卫：新端口≠旧端口且被占用 → 重启原服务并返回 1
+#   $1=新端口  $2=旧端口  $3=服务名
+_port_busy_guard() {
+    if [ "$1" != "$2" ] && _port_in_use "$1"; then
+        warn "端口 $1 已被占用"; svc start "$3"; return 1
+    fi
+    return 0
+}
+
+# 端口校验：纯数字 + 1–65535
+_chk_port() {
+    case "$1" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return 1 ;; esac
+    if [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+        warn "端口范围 1–65535，操作取消"; return 1
+    fi
+    return 0
+}
+
+# 字段校验：非空且不含空白  $1=值  $2=字段名
+_chk_field() {
+    [ -z "$1" ] && { warn "$2 不能为空，操作取消"; return 1; }
+    case "$1" in *' '*|*"	"*) warn "$2 不能含空白，操作取消"; return 1 ;; esac
+    return 0
+}
+
+# 创建系统用户（无登录）  $1=用户名
+_ensure_user() {
+    if id "$1" > /dev/null 2>&1; then
+        info "用户 $1 已存在，跳过"
+    else
+        adduser -D -H -s /sbin/nologin "$1" && ok "用户 $1 已创建"
+    fi
+}
+
 # 删除系统用户（含 home 目录，带安全守卫）
 _del_user() {
     id "$1" > /dev/null 2>&1 || return 0
@@ -190,6 +232,24 @@ _del_user() {
     home=$(getent passwd "$1" 2>/dev/null | cut -d: -f6)
     deluser "$1" > /dev/null 2>&1 || true
     [ -n "$home" ] && [ "$home" != "/" ] && [ -d "$home" ] && rm -rf "$home"
+}
+
+# 通用卸载流程（ss 因含 apk 选项单独实现）
+#   $1=显示名 $2=服务名 $3=init $4=配置目录 $5=用户  其余=待删文件
+_uninstall_common() {
+    local name="$1" service="$2" init="$3" dir="$4" user="$5"
+    shift 5
+    printf "\n"
+    _box "卸载 $name"
+    hr; printf "\n"
+    warn "将删除二进制、配置目录及系统用户，操作不可恢复"; printf "\n"
+    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    printf "\n"
+    svc stop "$service"; svc disable "$service"
+    rm -f "$init" "$@"
+    rm -rf "$dir"
+    _del_user "$user"
+    printf "\n"; ok "$name 已完全卸载"; printf "\n"
 }
 
 # 从 GitHub API JSON 提取指定 asset 的 SHA256  $1=json  $2=asset 名
@@ -215,7 +275,16 @@ _extract_with_rollback() {
 }
 
 ###############################################################################
-# §3  Snell
+# §3  摘要渲染
+###############################################################################
+
+# 键值行（label 已手动补齐至 4 列宽，规避中文宽度对齐问题）
+_kv()   { printf "    ${D}%s${Z}  %s\n" "$1" "$2"; }
+# Surge 节点块  $1=节点字符串
+_node() { printf "  ${D}Surge 节点:${Z}\n  ${C}%s${Z}\n" "$1"; }
+
+###############################################################################
+# §4  Snell
 ###############################################################################
 
 snell_is_installed() { [ -f "$SNELL_BIN" ]; }
@@ -223,7 +292,9 @@ snell_is_running()   { [ -f "$SNELL_INIT" ] && rc-service snell status > /dev/nu
 
 snell_get_version() {
     snell_is_installed || { echo "未安装"; return; }
-    "$SNELL_BIN" -version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "未知"
+    local v
+    v=$("$SNELL_BIN" -version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$v" ] && echo "$v" || echo "未知"
 }
 
 snell_read_conf() {
@@ -238,10 +309,11 @@ snell_write_conf() {
         "$1" "$2" > "$SNELL_CONF" || return 1
 }
 
-snell_write_info() {
-    printf '%s = snell, %s, %s, psk = %s, version = 5, reuse = true\n' \
-        "$4" "$3" "$1" "$2" > "$SNELL_INFO"
+# 节点字符串  $1=port $2=psk $3=ip $4=country
+snell_node() {
+    printf '%s = snell, %s, %s, psk = %s, version = 5, reuse = true' "$4" "$3" "$1" "$2"
 }
+snell_write_info() { { snell_node "$@"; echo; } > "$SNELL_INFO"; }
 
 snell_write_init() {
     cat > "$SNELL_INIT" << 'EOF'
@@ -258,28 +330,14 @@ EOF
 
 snell_show_summary() {
     # $1=port $2=psk $3=ip $4=country
-    printf "\n"
-    _box "Snell" "配置摘要"
-    hr
-    printf "    ${D}地区${Z}  %s\n" "$4"
-    printf "    ${D}IP  ${Z}  %s\n" "$3"
-    printf "    ${D}端口${Z}  %s\n" "$1"
-    printf "    ${D}PSK ${Z}  %s\n" "$2"
-    hr
-    printf "  ${D}Surge 节点:${Z}\n"
-    printf "  ${C}%s = snell, %s, %s, psk = %s, version = 5, reuse = true${Z}\n" \
-        "$4" "$3" "$1" "$2"
-    hr; printf "\n"
+    printf "\n"; _box "Snell" "配置摘要"; hr
+    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "PSK " "$2"
+    hr; _node "$(snell_node "$@")"; hr; printf "\n"
 }
 
 # Snell 闭源无 API，对下载 URL 发 HEAD 探测
-_snell_url() {
-    printf "https://dl.nssurge.com/snell/snell-server-%s-linux-%s.zip" "$1" "$(_arch)"
-}
-
-_snell_probe() {
-    curl -sf --head --connect-timeout 4 --max-time 6 "$(_snell_url "$1")" > /dev/null 2>&1
-}
+_snell_url()   { printf "https://dl.nssurge.com/snell/snell-server-%s-linux-%s.zip" "$1" "$(_arch)"; }
+_snell_probe() { curl -sf --head --connect-timeout 4 --max-time 6 "$(_snell_url "$1")" > /dev/null 2>&1; }
 
 # 从当前版本向后探测 patch（遇 404 即停），再试 minor+1.0
 snell_fetch_latest() {
@@ -311,7 +369,7 @@ snell_download() {
 }
 
 ###############################################################################
-# §4  AnyTLS
+# §5  AnyTLS
 ###############################################################################
 
 at_is_installed() { [ -f "$AT_BIN" ]; }
@@ -319,9 +377,9 @@ at_is_running()   { [ -f "$AT_INIT" ] && rc-service anytls status > /dev/null 2>
 
 at_get_version() {
     at_is_installed || { echo "未安装"; return; }
-    local ver
-    ver=$("$AT_BIN" -version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-    [ -n "$ver" ] && echo "v${ver}" || echo "未知"
+    local v
+    v=$("$AT_BIN" -version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$v" ] && echo "v${v}" || echo "未知"
 }
 
 at_read_conf() {
@@ -329,7 +387,8 @@ at_read_conf() {
     CONF_PORT=$(grep '^PORT='     "$AT_CONF" | sed 's/^PORT=//')
     CONF_PASS=$(grep '^PASSWORD=' "$AT_CONF" | sed 's/^PASSWORD=//')
     CONF_SNI=$(grep  '^SNI='      "$AT_CONF" | sed 's/^SNI=//')
-    [ -z "$CONF_SNI" ] && CONF_SNI="$AT_DEFAULT_SNI"
+    [ -z "$CONF_SNI" ] && CONF_SNI="$DEFAULT_SNI"
+    return 0
 }
 
 at_write_conf() {
@@ -337,9 +396,12 @@ at_write_conf() {
     printf 'PORT=%s\nPASSWORD=%s\nSNI=%s\n' "$1" "$2" "$3" > "$AT_CONF" || return 1
 }
 
-at_write_info() {
-    printf 'anytls://%s@%s:%s?sni=%s\n' "$2" "$3" "$1" "$4" > "$AT_INFO"
+# 节点字符串  $1=port $2=pass $3=ip $4=country $5=sni
+at_node() {
+    printf '%s = anytls, %s, %s, password=%s, reuse=true, skip-cert-verify=true, sni=%s' \
+        "$4" "$3" "$1" "$2" "$5"
 }
+at_write_info() { { at_node "$@"; echo; } > "$AT_INFO"; }
 
 at_write_init() {
     cat > "$AT_INIT" << 'EOF'
@@ -360,19 +422,9 @@ EOF
 
 at_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
-    printf "\n"
-    _box "AnyTLS" "配置摘要"
-    hr
-    printf "    ${D}地区${Z}  %s\n" "$4"
-    printf "    ${D}IP  ${Z}  %s\n" "$3"
-    printf "    ${D}端口${Z}  %s\n" "$1"
-    printf "    ${D}密码${Z}  %s\n" "$2"
-    printf "    ${D}SNI ${Z}  %s\n" "$5"
-    hr
-    printf "  ${D}Surge 节点:${Z}\n"
-    printf "  ${C}%s = anytls, %s, %s, password=%s, reuse=true, skip-cert-verify=true, sni=%s${Z}\n" \
-        "$4" "$3" "$1" "$2" "$5"
-    hr; printf "\n"
+    printf "\n"; _box "AnyTLS" "配置摘要"; hr
+    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "密码" "$2"; _kv "SNI " "$5"
+    hr; _node "$(at_node "$@")"; hr; printf "\n"
 }
 
 _at_url()   { printf "https://github.com/anytls/anytls-go/releases/download/%s/anytls_%s_linux_%s.zip" "$1" "${1#v}" "$(_arch go)"; }
@@ -393,11 +445,10 @@ at_fetch_latest() {
 
 at_download() {
     # $1=版本  $2=SHA256（可选，为空则单独查询）
-    local ver="${1:-$AT_VERSION}" sha="${2:-}" zip="/tmp/anytls-$$.zip" actual
+    local ver="${1:-$AT_VERSION}" sha="${2:-}" zip="/tmp/anytls-$$.zip" actual json
     info "下载 AnyTLS ${ver} ..."
     wget -q "$(_at_url "$ver")" -O "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     if [ -z "$sha" ]; then
-        local json
         json=$(curl -sf --connect-timeout 5 --max-time 10 "${AT_API}/tags/${ver}")
         sha=$(_extract_sha256 "$json" "$(_at_asset "$ver")")
     fi
@@ -413,7 +464,7 @@ at_download() {
 }
 
 ###############################################################################
-# §4b  Shadowsocks (shadowsocks-rust)
+# §6  Shadowsocks (shadowsocks-rust)
 ###############################################################################
 
 ss_is_installed() { [ -f "$SS_BIN" ] && [ -f "$SS_CONF" ]; }
@@ -421,8 +472,9 @@ ss_is_running()   { [ -f "$SS_INIT" ] && rc-service shadowsocks status > /dev/nu
 
 ss_get_version() {
     [ -f "$SS_BIN" ] || { echo "未安装"; return; }
-    "$SS_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 \
-        | sed 's/^/v/' || echo "未知"
+    local v
+    v=$("$SS_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$v" ] && echo "v${v}" || echo "未知"
 }
 
 ss_read_conf() {
@@ -449,11 +501,12 @@ ss_write_conf() {
 EOF
 }
 
-ss_write_info() {
-    # $1=port $2=pass $3=ip $4=country $5=method
-    printf '%s = ss, %s, %s, encrypt-method=%s, password=%s, udp-relay=true\n' \
-        "$4" "$3" "$1" "$5" "$2" > "$SS_INFO"
+# 节点字符串  $1=port $2=pass $3=ip $4=country $5=method
+ss_node() {
+    printf '%s = ss, %s, %s, encrypt-method=%s, password=%s, udp-relay=true' \
+        "$4" "$3" "$1" "$5" "$2"
 }
+ss_write_info() { { ss_node "$@"; echo; } > "$SS_INFO"; }
 
 ss_write_init() {
     cat > "$SS_INIT" << 'EOF'
@@ -470,28 +523,13 @@ EOF
 
 ss_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=method
-    local uri b64
-    b64=$(printf '%s:%s' "$5" "$2" | base64 | tr -d '\n')
-    uri="ss://${b64}@${3}:${1}#${4}"
-    printf "\n"
-    _box "Shadowsocks" "配置摘要"
-    hr
-    printf "    ${D}地区${Z}  %s\n" "$4"
-    printf "    ${D}IP  ${Z}  %s\n" "$3"
-    printf "    ${D}端口${Z}  %s\n" "$1"
-    printf "    ${D}密码${Z}  %s\n" "$2"
-    printf "    ${D}加密${Z}  %s\n" "$5"
-    hr
-    printf "  ${D}Surge 节点:${Z}\n"
-    printf "  ${C}%s = ss, %s, %s, encrypt-method=%s, password=%s, udp-relay=true${Z}\n" \
-        "$4" "$3" "$1" "$5" "$2"
-    printf "  ${D}SS URI:${Z}\n"
-    printf "  ${C}%s${Z}\n" "$uri"
-    hr; printf "\n"
+    printf "\n"; _box "Shadowsocks" "配置摘要"; hr
+    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "密码" "$2"; _kv "加密" "$5"
+    hr; _node "$(ss_node "$@")"; hr; printf "\n"
 }
 
 ###############################################################################
-# §4c  Hysteria2
+# §7  Hysteria2
 ###############################################################################
 
 hy_is_installed() { [ -f "$HY_BIN" ]; }
@@ -499,16 +537,17 @@ hy_is_running()   { [ -f "$HY_INIT" ] && rc-service hysteria status > /dev/null 
 
 hy_get_version() {
     hy_is_installed || { echo "未安装"; return; }
-    "$HY_BIN" version 2>&1 | grep -iE '^version' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' \
-        | head -1 | sed 's/^v*/v/' || echo "未知"
+    local v
+    v=$("$HY_BIN" version 2>&1 | grep -oiE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$v" ] && echo "v${v#v}" || echo "未知"
 }
 
 hy_read_conf() {
     [ -f "$HY_CONF" ] || return 1
     CONF_PORT=$(grep '^listen:' "$HY_CONF" | grep -oE '[0-9]+')
-    CONF_PASS=$(grep -A1 '^auth:' "$HY_CONF" | grep 'password:' | sed 's/.*password: *//')
-    CONF_SNI=$(grep '^# sni:' "$HY_CONF" | sed 's/^# sni: *//')
-    [ -z "$CONF_SNI" ] && CONF_SNI="$HY_DEFAULT_SNI"
+    CONF_PASS=$(grep '^[[:space:]]*password:' "$HY_CONF" | head -1 | sed 's/.*password:[[:space:]]*//')
+    CONF_SNI=$(grep '^# sni:' "$HY_CONF" | sed 's/^# sni:[[:space:]]*//')
+    [ -z "$CONF_SNI" ] && CONF_SNI="$DEFAULT_SNI"
     return 0
 }
 
@@ -535,11 +574,12 @@ masquerade:
 EOF
 }
 
-hy_write_info() {
-    # $1=port $2=pass $3=ip $4=country $5=sni
-    printf '%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true, download-bandwidth=200, upload-bandwidth=50\n' \
-        "$4" "$3" "$1" "$2" "$5" > "$HY_INFO"
+# 节点字符串  $1=port $2=pass $3=ip $4=country $5=sni
+hy_node() {
+    printf '%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true, download-bandwidth=200, upload-bandwidth=50' \
+        "$4" "$3" "$1" "$2" "$5"
 }
+hy_write_info() { { hy_node "$@"; echo; } > "$HY_INFO"; }
 
 hy_write_init() {
     cat > "$HY_INIT" << 'EOF'
@@ -554,9 +594,9 @@ EOF
     chmod +x "$HY_INIT"
 }
 
-# 生成自签证书（10 年）→ HY_CERT / HY_KEY
+# 生成自签证书（10 年）→ HY_CERT / HY_KEY  $1=CN
 hy_gen_cert() {
-    local cn="${1:-$HY_DEFAULT_SNI}"
+    local cn="${1:-$DEFAULT_SNI}"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
         -keyout "$HY_KEY" -out "$HY_CERT" -days 3650 -nodes \
         -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
@@ -566,25 +606,12 @@ hy_gen_cert() {
 
 hy_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
-    printf "\n"
-    _box "Hysteria2" "配置摘要"
-    hr
-    printf "    ${D}地区${Z}  %s\n" "$4"
-    printf "    ${D}IP  ${Z}  %s\n" "$3"
-    printf "    ${D}端口${Z}  %s\n" "$1"
-    printf "    ${D}密码${Z}  %s\n" "$2"
-    printf "    ${D}SNI ${Z}  %s\n" "$5"
-    hr
-    printf "  ${D}Surge 节点:${Z}\n"
-    printf "  ${C}%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true${Z}\n" \
-        "$4" "$3" "$1" "$2" "$5"
-    printf "  ${D}通用 URI:${Z}\n"
-    printf "  ${C}hysteria2://%s@%s:%s?insecure=1&sni=%s#%s${Z}\n" \
-        "$2" "$3" "$1" "$5" "$4"
-    hr; printf "\n"
+    printf "\n"; _box "Hysteria2" "配置摘要"; hr
+    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "密码" "$2"; _kv "SNI " "$5"
+    hr; _node "$(hy_node "$@")"; hr; printf "\n"
 }
 
-_hy_url()   { printf "https://github.com/apernet/hysteria/releases/download/app/%s/hysteria-linux-%s" "$1" "$(_arch go)"; }
+_hy_url() { printf "https://github.com/apernet/hysteria/releases/download/app/%s/hysteria-linux-%s" "$1" "$(_arch go)"; }
 
 # 单次请求 /latest → HY_LATEST_VER
 hy_fetch_latest() {
@@ -614,7 +641,7 @@ hy_download() {
 }
 
 ###############################################################################
-# §5  Snell 动作
+# §8  Snell 动作
 ###############################################################################
 
 snell_install() {
@@ -625,18 +652,11 @@ snell_install() {
         printf "\n"
     fi
     steps_init 5
-    _box "安装 Snell" "${SNELL_VERSION}"
-    hr
+    _box "安装 Snell" "${SNELL_VERSION}"; hr
 
     step "检查并安装依赖"; ensure_pkgs wget unzip curl gcompat upx
     step "下载并部署二进制"; snell_download "$SNELL_VERSION"
-
-    step "创建系统用户"
-    if id "$SNELL_USER" > /dev/null 2>&1; then
-        info "用户 ${SNELL_USER} 已存在，跳过"
-    else
-        adduser -D -H -s /sbin/nologin "$SNELL_USER"; ok "用户 ${SNELL_USER} 已创建"
-    fi
+    step "创建系统用户"; _ensure_user "$SNELL_USER"
 
     step "生成配置"
     local port psk
@@ -645,8 +665,7 @@ snell_install() {
     snell_write_init; ok "配置已写入"
 
     step "启动服务"
-    svc enable snell; svc start snell
-    if _wait_for_service snell; then ok "Snell 已启动"; else warn "启动超时，请手动检查"; fi
+    svc enable snell; _restart_wait snell "Snell 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
     snell_write_info "$port" "$psk" "$PUB_IP" "$PUB_COUNTRY"
@@ -657,34 +676,28 @@ snell_configure() {
     printf "\n"
     [ -f "$SNELL_CONF" ] || { warn "未找到配置文件，请先安装 Snell"; return; }
     snell_read_conf
-    _box "Snell" "当前配置"
-    hr
-    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
-    printf "    ${D}PSK ${Z}  %s\n" "$CONF_PSK"
+    _box "Snell" "当前配置"; hr
+    _kv "端口" "$CONF_PORT"; _kv "PSK " "$CONF_PSK"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
-    ask "端口" "$CONF_PORT"; local new_port="$REPLY"
-    ask "PSK"  "$CONF_PSK";  local new_psk="$REPLY"
+    local new_port new_psk
+    ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    ask "PSK"  "$CONF_PSK";  new_psk="$REPLY"
     printf "\n"
-    case "$new_port" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return ;; esac
-    if [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then warn "端口范围 1–65535，操作取消"; return; fi
-    [ -z "$new_psk" ] && { warn "PSK 不能为空，操作取消"; return; }
-    case "$new_psk" in *' '*|*'	'*) warn "PSK 不能含空白，操作取消"; return ;; esac
-    if [ "$new_port" = "$CONF_PORT" ] && [ "$new_psk" = "$CONF_PSK" ]; then info "配置未变更"; return; fi
+    _chk_port "$new_port" || return
+    _chk_field "$new_psk" "PSK" || return
+    [ "$new_port" = "$CONF_PORT" ] && [ "$new_psk" = "$CONF_PSK" ] && { info "配置未变更"; return; }
 
     svc stop snell
-    if [ "$new_port" != "$CONF_PORT" ] && _port_in_use "$new_port"; then
-        warn "端口 ${new_port} 已被占用"; svc start snell; return
-    fi
+    _port_busy_guard "$new_port" "$CONF_PORT" snell || return
     cp "$SNELL_CONF" "$SNELL_CONF_BAK" 2>/dev/null
     if ! snell_write_conf "$new_port" "$new_psk"; then
         [ -f "$SNELL_CONF_BAK" ] && mv "$SNELL_CONF_BAK" "$SNELL_CONF"
         warn "配置写入失败，已恢复"; svc start snell; return
     fi
     rm -f "$SNELL_CONF_BAK"
-    svc start snell
-    if _wait_for_service snell; then ok "新配置已生效"; else warn "重启超时，请手动检查"; fi
+    _restart_wait snell "新配置已生效"
     fetch_public_ip
     snell_write_info "$new_port" "$new_psk" "$PUB_IP" "$PUB_COUNTRY"
     snell_show_summary "$new_port" "$new_psk" "$PUB_IP" "$PUB_COUNTRY"
@@ -694,8 +707,7 @@ snell_update() {
     printf "\n"
     snell_is_installed || { warn "Snell 未安装"; return; }
     steps_init 4
-    _box "更新 Snell"
-    hr
+    _box "更新 Snell"; hr
     step "探测最新版本"
     local old_ver new_ver
     old_ver=$(snell_get_version); SNELL_VERSION="$old_ver"
@@ -710,28 +722,17 @@ snell_update() {
     fi
     step "停止服务"; svc stop snell; ok "已停止"
     step "下载并部署"; ensure_pkgs wget unzip curl gcompat upx; snell_download "$new_ver"; SNELL_VERSION="$new_ver"
-    step "启动服务"; svc start snell
-    if _wait_for_service snell; then ok "Snell 已启动（$(snell_get_version)）"; else warn "启动超时"; fi
+    step "启动服务"; _restart_wait snell "Snell 已启动（$(snell_get_version)）" "启动超时"
     snell_read_conf
     [ -n "$CONF_PORT" ] && { fetch_public_ip; snell_write_info "$CONF_PORT" "$CONF_PSK" "$PUB_IP" "$PUB_COUNTRY"; snell_show_summary "$CONF_PORT" "$CONF_PSK" "$PUB_IP" "$PUB_COUNTRY"; }
 }
 
 snell_uninstall() {
-    printf "\n"
-    _box "卸载 Snell"
-    hr; printf "\n"
-    warn "将删除二进制、配置目录及系统用户，操作不可恢复"; printf "\n"
-    confirm "确认卸载？" "n" || { ok "已取消"; return; }
-    printf "\n"
-    svc stop snell; svc disable snell
-    rm -f "$SNELL_INIT" "$SNELL_BIN" "$SNELL_BIN_BAK"
-    rm -rf /etc/snell
-    _del_user "$SNELL_USER"
-    printf "\n"; ok "Snell 已完全卸载"; printf "\n"
+    _uninstall_common "Snell" snell "$SNELL_INIT" /etc/snell "$SNELL_USER" "$SNELL_BIN" "$SNELL_BIN_BAK"
 }
 
 ###############################################################################
-# §6  AnyTLS 动作
+# §9  AnyTLS 动作
 ###############################################################################
 
 at_install() {
@@ -742,73 +743,58 @@ at_install() {
         printf "\n"
     fi
     steps_init 5
-    _box "安装 AnyTLS" "${AT_VERSION}"
-    hr
+    _box "安装 AnyTLS" "${AT_VERSION}"; hr
 
     step "检查并安装依赖"; ensure_pkgs wget unzip curl
     step "下载并部署二进制"; at_download "$AT_VERSION"
-
-    step "创建系统用户"
-    if id "$AT_USER" > /dev/null 2>&1; then
-        info "用户 ${AT_USER} 已存在，跳过"
-    else
-        adduser -D -H -s /sbin/nologin "$AT_USER"; ok "用户 ${AT_USER} 已创建"
-    fi
+    step "创建系统用户"; _ensure_user "$AT_USER"
 
     step "生成配置"
     local port pass
     port=$(gen_port); pass=$(gen_secret)
-    at_write_conf "$port" "$pass" "$AT_DEFAULT_SNI" || die "配置写入失败"
+    at_write_conf "$port" "$pass" "$DEFAULT_SNI" || die "配置写入失败"
     at_write_init; ok "配置已写入"
 
     step "启动服务"
-    svc enable anytls; svc start anytls
-    if _wait_for_service anytls; then ok "AnyTLS 已启动"; else warn "启动超时，请手动检查"; fi
+    svc enable anytls; _restart_wait anytls "AnyTLS 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    at_write_info "$port" "$pass" "$PUB_IP" "$AT_DEFAULT_SNI"
-    at_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$AT_DEFAULT_SNI"
+    at_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    at_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
 }
 
 at_configure() {
     printf "\n"
     [ -f "$AT_CONF" ] || { warn "未找到配置文件，请先安装 AnyTLS"; return; }
     at_read_conf
-    _box "AnyTLS" "当前配置"
-    hr
-    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
-    printf "    ${D}密码${Z}  %s\n" "$CONF_PASS"
-    printf "    ${D}SNI ${Z}  %s\n" "$CONF_SNI"
+    _box "AnyTLS" "当前配置"; hr
+    _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
-    ask "端口" "$CONF_PORT"; local new_port="$REPLY"
-    ask "密码" "$CONF_PASS"; local new_pass="$REPLY"
-    ask "SNI"  "$CONF_SNI";  local new_sni="$REPLY"
+    local new_port new_pass new_sni
+    ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    ask "密码" "$CONF_PASS"; new_pass="$REPLY"
+    ask "SNI"  "$CONF_SNI";  new_sni="$REPLY"
     printf "\n"
-    case "$new_port" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return ;; esac
-    if [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then warn "端口范围 1–65535，操作取消"; return; fi
-    [ -z "$new_pass" ] && { warn "密码不能为空，操作取消"; return; }
-    case "$new_pass" in *' '*|*'	'*) warn "密码不能含空白，操作取消"; return ;; esac
-    [ -z "$new_sni" ] && { warn "SNI 不能为空，操作取消"; return; }
+    _chk_port "$new_port" || return
+    _chk_field "$new_pass" "密码" || return
+    _chk_field "$new_sni" "SNI" || return
     if [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ] && [ "$new_sni" = "$CONF_SNI" ]; then
         info "配置未变更"; return
     fi
 
     svc stop anytls
-    if [ "$new_port" != "$CONF_PORT" ] && _port_in_use "$new_port"; then
-        warn "端口 ${new_port} 已被占用"; svc start anytls; return
-    fi
+    _port_busy_guard "$new_port" "$CONF_PORT" anytls || return
     cp "$AT_CONF" "$AT_CONF_BAK" 2>/dev/null
     if ! at_write_conf "$new_port" "$new_pass" "$new_sni"; then
         [ -f "$AT_CONF_BAK" ] && mv "$AT_CONF_BAK" "$AT_CONF"
         warn "配置写入失败，已恢复"; svc start anytls; return
     fi
     rm -f "$AT_CONF_BAK"
-    svc start anytls
-    if _wait_for_service anytls; then ok "新配置已生效"; else warn "重启超时，请手动检查"; fi
+    _restart_wait anytls "新配置已生效"
     fetch_public_ip
-    at_write_info "$new_port" "$new_pass" "$PUB_IP" "$new_sni"
+    at_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
     at_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
 }
 
@@ -816,8 +802,7 @@ at_update() {
     printf "\n"
     at_is_installed || { warn "AnyTLS 未安装"; return; }
     steps_init 4
-    _box "更新 AnyTLS"
-    hr
+    _box "更新 AnyTLS"; hr
     step "查询最新版本"
     local old_ver
     old_ver=$(at_get_version)
@@ -832,28 +817,17 @@ at_update() {
     fi
     step "停止服务"; svc stop anytls; ok "已停止"
     step "下载并部署"; ensure_pkgs wget unzip curl; at_download "$AT_LATEST_VER" "$AT_LATEST_SHA256"; AT_VERSION="$AT_LATEST_VER"
-    step "启动服务"; svc start anytls
-    if _wait_for_service anytls; then ok "AnyTLS 已启动（$(at_get_version)）"; else warn "启动超时"; fi
+    step "启动服务"; _restart_wait anytls "AnyTLS 已启动（$(at_get_version)）" "启动超时"
     at_read_conf
-    [ -n "$CONF_PORT" ] && { fetch_public_ip; at_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$CONF_SNI"; at_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
+    [ -n "$CONF_PORT" ] && { fetch_public_ip; at_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; at_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
 }
 
 at_uninstall() {
-    printf "\n"
-    _box "卸载 AnyTLS"
-    hr; printf "\n"
-    warn "将删除二进制、配置目录及系统用户，操作不可恢复"; printf "\n"
-    confirm "确认卸载？" "n" || { ok "已取消"; return; }
-    printf "\n"
-    svc stop anytls; svc disable anytls
-    rm -f "$AT_INIT" "$AT_BIN" "$AT_BIN_BAK"
-    rm -rf /etc/anytls
-    _del_user "$AT_USER"
-    printf "\n"; ok "AnyTLS 已完全卸载"; printf "\n"
+    _uninstall_common "AnyTLS" anytls "$AT_INIT" /etc/anytls "$AT_USER" "$AT_BIN" "$AT_BIN_BAK"
 }
 
 ###############################################################################
-# §6b  Shadowsocks 动作
+# §10  Shadowsocks 动作
 ###############################################################################
 
 ss_install() {
@@ -863,20 +837,12 @@ ss_install() {
         confirm "确认继续？" "n" || { ok "已取消"; return; }
         printf "\n"
     fi
-    steps_init 5
-    _box "安装 Shadowsocks" "shadowsocks-rust"
-    hr
+    steps_init 4
+    _box "安装 Shadowsocks" "shadowsocks-rust"; hr
 
     step "检查并安装依赖"; ensure_pkgs shadowsocks-rust curl
     [ -f "$SS_BIN" ] || die "ssserver 未找到，apk 安装可能失败"
-    step "准备二进制"; ok "shadowsocks-rust 已就绪（$(ss_get_version)）"
-
-    step "创建系统用户"
-    if id "$SS_USER" > /dev/null 2>&1; then
-        info "用户 ${SS_USER} 已存在，跳过"
-    else
-        adduser -D -H -s /sbin/nologin "$SS_USER"; ok "用户 ${SS_USER} 已创建"
-    fi
+    step "创建系统用户"; _ensure_user "$SS_USER"
 
     step "生成配置"
     local port pass
@@ -885,8 +851,7 @@ ss_install() {
     ss_write_init; ok "配置已写入"
 
     step "启动服务"
-    svc enable shadowsocks; svc start shadowsocks
-    if _wait_for_service shadowsocks; then ok "Shadowsocks 已启动"; else warn "启动超时，请手动检查"; fi
+    svc enable shadowsocks; _restart_wait shadowsocks "Shadowsocks 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
     ss_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$SS_METHOD"
@@ -897,35 +862,28 @@ ss_configure() {
     printf "\n"
     [ -f "$SS_CONF" ] || { warn "未找到配置文件，请先安装 Shadowsocks"; return; }
     ss_read_conf
-    _box "Shadowsocks" "当前配置"
-    hr
-    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
-    printf "    ${D}密码${Z}  %s\n" "$CONF_PASS"
-    printf "    ${D}加密${Z}  %s\n" "$CONF_METHOD"
+    _box "Shadowsocks" "当前配置"; hr
+    _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "加密" "$CONF_METHOD"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
-    ask "端口" "$CONF_PORT"; local new_port="$REPLY"
-    ask "密码" "$CONF_PASS"; local new_pass="$REPLY"
+    local new_port new_pass
+    ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    ask "密码" "$CONF_PASS"; new_pass="$REPLY"
     printf "\n"
-    case "$new_port" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return ;; esac
-    if [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then warn "端口范围 1–65535，操作取消"; return; fi
-    [ -z "$new_pass" ] && { warn "密码不能为空，操作取消"; return; }
-    case "$new_pass" in *' '*|*'	'*) warn "密码不能含空白，操作取消"; return ;; esac
-    if [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ]; then info "配置未变更"; return; fi
+    _chk_port "$new_port" || return
+    _chk_field "$new_pass" "密码" || return
+    [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ] && { info "配置未变更"; return; }
 
     svc stop shadowsocks
-    if [ "$new_port" != "$CONF_PORT" ] && _port_in_use "$new_port"; then
-        warn "端口 ${new_port} 已被占用"; svc start shadowsocks; return
-    fi
+    _port_busy_guard "$new_port" "$CONF_PORT" shadowsocks || return
     cp "$SS_CONF" "$SS_CONF_BAK" 2>/dev/null
     if ! ss_write_conf "$new_port" "$new_pass" "$CONF_METHOD"; then
         [ -f "$SS_CONF_BAK" ] && mv "$SS_CONF_BAK" "$SS_CONF"
         warn "配置写入失败，已恢复"; svc start shadowsocks; return
     fi
     rm -f "$SS_CONF_BAK"
-    svc start shadowsocks
-    if _wait_for_service shadowsocks; then ok "新配置已生效"; else warn "重启超时，请手动检查"; fi
+    _restart_wait shadowsocks "新配置已生效"
     fetch_public_ip
     ss_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$CONF_METHOD"
     ss_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$CONF_METHOD"
@@ -935,24 +893,19 @@ ss_update() {
     printf "\n"
     ss_is_installed || { warn "Shadowsocks 未安装"; return; }
     steps_init 3
-    _box "更新 Shadowsocks"
-    hr
+    _box "更新 Shadowsocks"; hr
     step "更新二进制"
-    local old_ver
-    old_ver=$(ss_get_version)
-    info "当前版本: ${old_ver}，通过 apk 升级..."
+    info "当前版本: $(ss_get_version)，通过 apk 升级..."
     svc stop shadowsocks
     apk update -q > /dev/null 2>&1
     apk upgrade -q shadowsocks-rust > /dev/null 2>&1 || true
-    step "启动服务"; svc start shadowsocks
-    if _wait_for_service shadowsocks; then ok "Shadowsocks 已启动（$(ss_get_version)）"; else warn "启动超时"; fi
+    step "启动服务"; _restart_wait shadowsocks "Shadowsocks 已启动（$(ss_get_version)）" "启动超时"
     step "完成"; ok "已更新至 $(ss_get_version)"
 }
 
 ss_uninstall() {
     printf "\n"
-    _box "卸载 Shadowsocks"
-    hr; printf "\n"
+    _box "卸载 Shadowsocks"; hr; printf "\n"
     warn "将停止服务、删除配置目录及系统用户（保留 apk 包），操作不可恢复"; printf "\n"
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
@@ -968,7 +921,7 @@ ss_uninstall() {
 }
 
 ###############################################################################
-# §6c  Hysteria2 动作
+# §11  Hysteria2 动作
 ###############################################################################
 
 hy_install() {
@@ -979,69 +932,55 @@ hy_install() {
         printf "\n"
     fi
     steps_init 6
-    _box "安装 Hysteria2" "${HY_VERSION}"
-    hr
+    _box "安装 Hysteria2" "${HY_VERSION}"; hr
 
     step "检查并安装依赖"; ensure_pkgs wget curl openssl
     step "下载并部署二进制"; hy_download "$HY_VERSION"
-
-    step "创建系统用户"
-    if id "$HY_USER" > /dev/null 2>&1; then
-        info "用户 ${HY_USER} 已存在，跳过"
-    else
-        adduser -D -H -s /sbin/nologin "$HY_USER"; ok "用户 ${HY_USER} 已创建"
-    fi
+    step "创建系统用户"; _ensure_user "$HY_USER"
 
     step "生成自签证书"
     mkdir -p "$HY_DIR"
-    hy_gen_cert "$HY_DEFAULT_SNI"
+    hy_gen_cert "$DEFAULT_SNI"
     chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
-    ok "证书已生成（CN=${HY_DEFAULT_SNI}）"
+    ok "证书已生成（CN=${DEFAULT_SNI}）"
 
     step "生成配置"
     local port pass
     port=$(gen_port); pass=$(gen_secret)
-    hy_write_conf "$port" "$pass" "$HY_DEFAULT_SNI" || die "配置写入失败"
+    hy_write_conf "$port" "$pass" "$DEFAULT_SNI" || die "配置写入失败"
     hy_write_init; ok "配置已写入"
 
     step "启动服务"
-    svc enable hysteria; svc start hysteria
-    if _wait_for_service hysteria; then ok "Hysteria2 已启动"; else warn "启动超时，请手动检查"; fi
+    svc enable hysteria; _restart_wait hysteria "Hysteria2 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    hy_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$HY_DEFAULT_SNI"
-    hy_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$HY_DEFAULT_SNI"
+    hy_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    hy_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
 }
 
 hy_configure() {
     printf "\n"
     [ -f "$HY_CONF" ] || { warn "未找到配置文件，请先安装 Hysteria2"; return; }
     hy_read_conf
-    _box "Hysteria2" "当前配置"
-    hr
-    printf "    ${D}端口${Z}  %s\n" "$CONF_PORT"
-    printf "    ${D}密码${Z}  %s\n" "$CONF_PASS"
-    printf "    ${D}SNI ${Z}  %s\n" "$CONF_SNI"
+    _box "Hysteria2" "当前配置"; hr
+    _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
-    ask "端口" "$CONF_PORT"; local new_port="$REPLY"
-    ask "密码" "$CONF_PASS"; local new_pass="$REPLY"
-    ask "SNI"  "$CONF_SNI";  local new_sni="$REPLY"
+    local new_port new_pass new_sni
+    ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    ask "密码" "$CONF_PASS"; new_pass="$REPLY"
+    ask "SNI"  "$CONF_SNI";  new_sni="$REPLY"
     printf "\n"
-    case "$new_port" in ''|*[!0-9]*) warn "端口须为纯数字，操作取消"; return ;; esac
-    if [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then warn "端口范围 1–65535，操作取消"; return; fi
-    [ -z "$new_pass" ] && { warn "密码不能为空，操作取消"; return; }
-    case "$new_pass" in *' '*|*'	'*) warn "密码不能含空白，操作取消"; return ;; esac
-    [ -z "$new_sni" ] && { warn "SNI 不能为空，操作取消"; return; }
+    _chk_port "$new_port" || return
+    _chk_field "$new_pass" "密码" || return
+    _chk_field "$new_sni" "SNI" || return
     if [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ] && [ "$new_sni" = "$CONF_SNI" ]; then
         info "配置未变更"; return
     fi
 
     svc stop hysteria
-    if [ "$new_port" != "$CONF_PORT" ] && _port_in_use "$new_port"; then
-        warn "端口 ${new_port} 已被占用"; svc start hysteria; return
-    fi
+    _port_busy_guard "$new_port" "$CONF_PORT" hysteria || return
     cp "$HY_CONF" "$HY_CONF_BAK" 2>/dev/null
     if [ "$new_sni" != "$CONF_SNI" ]; then
         hy_gen_cert "$new_sni"
@@ -1052,8 +991,7 @@ hy_configure() {
         warn "配置写入失败，已恢复"; svc start hysteria; return
     fi
     rm -f "$HY_CONF_BAK"
-    svc start hysteria
-    if _wait_for_service hysteria; then ok "新配置已生效"; else warn "重启超时，请手动检查"; fi
+    _restart_wait hysteria "新配置已生效"
     fetch_public_ip
     hy_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
     hy_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
@@ -1063,8 +1001,7 @@ hy_update() {
     printf "\n"
     hy_is_installed || { warn "Hysteria2 未安装"; return; }
     steps_init 4
-    _box "更新 Hysteria2"
-    hr
+    _box "更新 Hysteria2"; hr
     step "查询最新版本"
     local old_ver
     old_ver=$(hy_get_version)
@@ -1079,28 +1016,17 @@ hy_update() {
     fi
     step "停止服务"; svc stop hysteria; ok "已停止"
     step "下载并部署"; ensure_pkgs wget curl; hy_download "$HY_LATEST_VER"; HY_VERSION="$HY_LATEST_VER"
-    step "启动服务"; svc start hysteria
-    if _wait_for_service hysteria; then ok "Hysteria2 已启动（$(hy_get_version)）"; else warn "启动超时"; fi
+    step "启动服务"; _restart_wait hysteria "Hysteria2 已启动（$(hy_get_version)）" "启动超时"
     hy_read_conf
     [ -n "$CONF_PORT" ] && { fetch_public_ip; hy_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; hy_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
 }
 
 hy_uninstall() {
-    printf "\n"
-    _box "卸载 Hysteria2"
-    hr; printf "\n"
-    warn "将删除二进制、配置目录、证书及系统用户，操作不可恢复"; printf "\n"
-    confirm "确认卸载？" "n" || { ok "已取消"; return; }
-    printf "\n"
-    svc stop hysteria; svc disable hysteria
-    rm -f "$HY_INIT" "$HY_BIN" "$HY_BIN_BAK"
-    rm -rf "$HY_DIR"
-    _del_user "$HY_USER"
-    printf "\n"; ok "Hysteria2 已完全卸载"; printf "\n"
+    _uninstall_common "Hysteria2" hysteria "$HY_INIT" "$HY_DIR" "$HY_USER" "$HY_BIN" "$HY_BIN_BAK"
 }
 
 ###############################################################################
-# §7  菜单
+# §12  菜单
 ###############################################################################
 
 # 状态行  $1=已装(0/1) $2=运行(0/1) $3=版本
@@ -1138,10 +1064,10 @@ _svc_menu_items() {
 show_main_menu() {
     clear
     local si=0 sr=0 ai=0 ar=0 ssi=0 ssr=0 hi=0 hyr=0
-    snell_is_installed && si=1; snell_is_running && sr=1
-    at_is_installed    && ai=1; at_is_running    && ar=1
-    ss_is_installed    && ssi=1; ss_is_running   && ssr=1
-    hy_is_installed    && hi=1; hy_is_running    && hyr=1
+    snell_is_installed && si=1;  snell_is_running && sr=1
+    at_is_installed    && ai=1;  at_is_running    && ar=1
+    ss_is_installed    && ssi=1; ss_is_running    && ssr=1
+    hy_is_installed    && hi=1;  hy_is_running     && hyr=1
     _box "代理服务管理" "Snell · AnyTLS · SS · Hysteria2"
     printf "    ${D}Alpine Linux 专用${Z}\n"
     hr
@@ -1161,51 +1087,52 @@ show_main_menu() {
     read -r CHOICE
 }
 
-# 服务子菜单  $1=snell|at
+# 服务子菜单  $1=snell|at|ss|hy
 show_svc_menu() {
     clear
     local p="$1" inst=0 run=0 ver extra="" ip
-    if [ "$p" = "snell" ]; then
-        snell_is_installed && inst=1; snell_is_running && run=1
-        ver=$(snell_get_version)
-        if [ $inst -eq 1 ]; then
-            snell_read_conf 2>/dev/null
-            ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SNELL_INFO" 2>/dev/null | head -1)
-            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
-            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
-        fi
-        _box "Snell Server" "管理"
-    elif [ "$p" = "at" ]; then
-        at_is_installed && inst=1; at_is_running && run=1
-        ver=$(at_get_version)
-        if [ $inst -eq 1 ]; then
-            at_read_conf 2>/dev/null
-            ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
-            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
-        fi
-        _box "AnyTLS Server" "管理"
-    elif [ "$p" = "ss" ]; then
-        ss_is_installed && inst=1; ss_is_running && run=1
-        ver=$(ss_get_version)
-        if [ $inst -eq 1 ]; then
-            ss_read_conf 2>/dev/null
-            ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SS_INFO" 2>/dev/null | head -1)
-            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   加密  ${C}${CONF_METHOD}${Z}"
-            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
-        fi
-        _box "Shadowsocks Server" "管理"
-    else
-        hy_is_installed && inst=1; hy_is_running && run=1
-        ver=$(hy_get_version)
-        if [ $inst -eq 1 ]; then
-            hy_read_conf 2>/dev/null
-            ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$HY_INFO" 2>/dev/null | head -1)
-            [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-            [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
-        fi
-        _box "Hysteria2 Server" "管理"
-    fi
+    case "$p" in
+        snell)
+            snell_is_installed && inst=1; snell_is_running && run=1
+            ver=$(snell_get_version)
+            if [ $inst -eq 1 ]; then
+                snell_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SNELL_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "Snell Server" "管理" ;;
+        at)
+            at_is_installed && inst=1; at_is_running && run=1
+            ver=$(at_get_version)
+            if [ $inst -eq 1 ]; then
+                at_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "AnyTLS Server" "管理" ;;
+        ss)
+            ss_is_installed && inst=1; ss_is_running && run=1
+            ver=$(ss_get_version)
+            if [ $inst -eq 1 ]; then
+                ss_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SS_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   加密  ${C}${CONF_METHOD}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "Shadowsocks Server" "管理" ;;
+        hy)
+            hy_is_installed && inst=1; hy_is_running && run=1
+            ver=$(hy_get_version)
+            if [ $inst -eq 1 ]; then
+                hy_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$HY_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "Hysteria2 Server" "管理" ;;
+    esac
     hr
     printf "    状态  %b\n" "$(_status_line $inst $run "$ver")"
     [ -n "$extra" ] && printf "    ${D}%b${Z}\n" "$extra"
@@ -1213,7 +1140,7 @@ show_svc_menu() {
     read -r CHOICE
 }
 
-# 子菜单循环  $1=snell|at
+# 子菜单循环  $1=snell|at|ss|hy
 _run_submenu() {
     local p="$1"
     while true; do
@@ -1235,7 +1162,7 @@ _run_submenu() {
 }
 
 ###############################################################################
-# §8  入口
+# §13  入口
 ###############################################################################
 
 trap 'printf "\n${R}  已中断${Z}\n"; exit 130' INT

@@ -172,10 +172,10 @@ gen_port() {
 
 # 服务就绪等待（点动画），10s 超时；$1=服务名
 _wait_for_service() {
-    local svc="$1" i=0
+    local _svc="$1" i=0
     printf "${C}  等待服务启动${Z}"
     while [ $i -lt 10 ]; do
-        rc-service "$svc" status > /dev/null 2>&1 && { printf " ${G}就绪${Z}\n"; return 0; }
+        rc-service "$_svc" status > /dev/null 2>&1 && { printf " ${G}就绪${Z}\n"; return 0; }
         printf "."; sleep 1; i=$((i+1))
     done
     printf " ${Y}超时${Z}\n"; return 1
@@ -356,9 +356,9 @@ _snell_probe() { curl -sf --head --connect-timeout 4 --max-time 6 "$(_snell_url 
 # 从当前版本向后探测 patch（遇 404 即停），再试 minor+1.0
 snell_fetch_latest() {
     local maj min pat best cand p
-    maj=$(echo "$SNELL_VERSION" | grep -oE '[0-9]+' | sed -n '1p')
-    min=$(echo "$SNELL_VERSION" | grep -oE '[0-9]+' | sed -n '2p')
-    pat=$(echo "$SNELL_VERSION" | grep -oE '[0-9]+' | sed -n '3p')
+    maj=$(echo "$SNELL_VERSION" | awk -F'[v.]' '{print $2}')
+    min=$(echo "$SNELL_VERSION" | awk -F'[v.]' '{print $3}')
+    pat=$(echo "$SNELL_VERSION" | awk -F'[v.]' '{print $4}')
     if [ -z "$maj" ] || [ -z "$min" ] || [ -z "$pat" ]; then
         warn "版本号解析失败，跳过探测"; echo "$SNELL_VERSION"; return
     fi
@@ -489,7 +489,7 @@ ss_is_installed() { [ -f "$SS_BIN" ] && [ -f "$SS_CONF" ]; }
 ss_is_running()   { [ -f "$SS_INIT" ] && rc-service shadowsocks status > /dev/null 2>&1; }
 
 ss_get_version() {
-    [ -f "$SS_BIN" ] || { echo "未安装"; return; }
+    ss_is_installed || { echo "未安装"; return; }
     local v
     v=$("$SS_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     [ -n "$v" ] && echo "v${v}" || echo "未知"
@@ -611,13 +611,13 @@ EOF
     chmod +x "$HY_INIT"
 }
 
-# 生成自签证书（10 年）→ HY_CERT / HY_KEY  $1=CN
+# 生成自签证书（10 年）→ HY_CERT / HY_KEY  $1=CN  失败返回 1（由调用方决定是否 die）
 hy_gen_cert() {
     local cn="${1:-$DEFAULT_SNI}"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
         -keyout "$HY_KEY" -out "$HY_CERT" -days 3650 -nodes \
         -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
-        || die "自签证书生成失败"
+        || return 1
     chmod 600 "$HY_KEY"
 }
 
@@ -887,7 +887,7 @@ ss_configure() {
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     ask "密码(base64)" "$CONF_PASS"; new_pass="$REPLY"
-    [ "$new_pass" = "gen" ] && { new_pass=$(gen_ss_pass); info "已生成新密钥: ${new_pass}"; }
+    [ "$new_pass" = "gen" ] && new_pass=$(gen_ss_pass)
     printf "\n"
     _chk_port "$new_port" || return
     _chk_field "$new_pass" "密码" || return
@@ -915,8 +915,8 @@ ss_update() {
     step "更新二进制"
     info "当前版本: $(ss_get_version)，通过 apk 升级..."
     svc stop shadowsocks
-    apk update -q > /dev/null 2>&1
-    apk upgrade -q shadowsocks-rust > /dev/null 2>&1 || true
+    apk update -q 2>/dev/null
+    apk upgrade -q shadowsocks-rust 2>/dev/null || true
     step "启动服务"; _restart_wait shadowsocks "Shadowsocks 已更新至 $(ss_get_version)" "启动超时"
 }
 
@@ -957,7 +957,7 @@ hy_install() {
 
     step "生成自签证书"
     mkdir -p "$HY_DIR"
-    hy_gen_cert "$DEFAULT_SNI"
+    hy_gen_cert "$DEFAULT_SNI" || die "自签证书生成失败"
     chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
     ok "证书已生成（CN=${DEFAULT_SNI}）"
 

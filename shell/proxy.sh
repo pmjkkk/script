@@ -1,8 +1,11 @@
 #!/bin/ash
 # shellcheck disable=SC2059  # ANSI 颜色变量出现在 printf 格式串中，属故意为之
 #=============================================================================
-# proxy.sh  ·  多协议代理管理工具  ·  Alpine Linux 专用
+# proxy.sh  ·  多协议代理服务端管理工具  ·  Alpine Linux / OpenRC 专用
 #   Snell · Shadowsocks · Hysteria2 · Trojan · SOCKS5 · AnyTLS
+#
+#   每个协议提供：安装 / 配置 / 更新 / 卸载，交互式输入（回车用随机默认值）
+#   GitHub 二进制类（Snell/AnyTLS/HY/Trojan）自动下载，apk 类（SS/SOCKS5）走仓库
 #=============================================================================
 
 # ── 公共 ──────────────────────────────────────────────────────────────────
@@ -274,8 +277,8 @@ _del_user() {
     [ -n "$home" ] && [ "$home" != "/" ] && [ -d "$home" ] && rm -rf "$home"
 }
 
-# 通用卸载流程（ss 因含 apk 选项单独实现）
-#   $1=显示名 $2=服务名 $3=init $4=配置目录 $5=用户  其余=待删文件
+# 通用卸载流程（ss/s5 因含 apk 选项单独实现）
+#   $1=显示名 $2=服务名 $3=init脚本 $4=配置目录 $5=系统用户  其余=待删二进制/备份
 _uninstall_common() {
     local name="$1" service="$2" init="$3" dir="$4" user="$5"
     shift 5
@@ -286,8 +289,8 @@ _uninstall_common() {
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
     svc stop "$service"; svc disable "$service"
-    rm -f "$init" "$@"
-    rm -rf "$dir"
+    rm -f "$init" "$@"        # 删除 init 脚本 + 二进制 + .bak 备份
+    rm -rf "$dir"             # 删除配置目录（含 conf/info/cert/key 及其备份）
     _del_user "$user"
     printf "\n"; ok "$name 已完全卸载"; printf "\n"
 }
@@ -866,6 +869,7 @@ s5_write_info() {
     { s5_node "$@"; echo; [ -n "$6" ] && printf '# pass: %s\n' "$6"; } > "$S5_INFO"
 }
 
+# OpenRC init：sockd 必须前台运行（不加 -D），否则 supervise-daemon 误判已退出
 s5_write_init() {
     printf '#!/sbin/openrc-run\nname="sockd"\ndescription="SOCKS5 Proxy Server (dante)"\ncommand="/usr/sbin/sockd"\ncommand_args="-f /etc/sockd.conf"\nsupervisor="supervise-daemon"\n' > "$S5_INIT"
     chmod +x "$S5_INIT"
@@ -1509,9 +1513,13 @@ s5_uninstall() {
     warn "将停止服务、删除配置及系统用户（保留 apk 包），操作不可恢复"; printf "\n"
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
+    # 读取认证用户名（需在删除配置前）
+    s5_read_conf 2>/dev/null
     svc stop sockd; svc disable sockd
-    rm -f "$S5_INFO" "$S5_CONF" "$S5_INIT"
+    rm -f "$S5_INFO" "$S5_CONF" "$S5_CONF_BAK" "$S5_INIT"
     _del_user "$S5_USER"
+    # 删除认证登录用户（安装时由 adduser+chpasswd 创建）
+    [ -n "$CONF_USER" ] && [ "$CONF_USER" != "$S5_USER" ] && _del_user "$CONF_USER"
     if confirm "是否同时卸载 dante-server apk 包？" "n"; then
         apk del -q dante-server 2>/dev/null || true
         ok "apk 包已卸载"

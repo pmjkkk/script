@@ -30,12 +30,14 @@ curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/proxy.sh -
 |:---:|------|----------|:----:|:----:|
 | 1 | [Snell](https://github.com/surge-networks/snell) | 官方 CDN 二进制（自动探测最新版） | TCP | — |
 | 2 | [Shadowsocks](https://github.com/shadowsocks/shadowsocks-rust) | apk · shadowsocks-rust | TCP/UDP | — |
-| 3 | [Hysteria2](https://github.com/apernet/hysteria) | GitHub release | UDP | 自签 ECC |
-| 4 | [Trojan](https://github.com/p4gefau1t/trojan-go) | GitHub release | TCP | 自签 ECC |
+| 3 | [Hysteria2](https://github.com/apernet/hysteria) | GitHub release | UDP | 自签 ECC · 脚本生成 |
+| 4 | [Trojan](https://github.com/p4gefau1t/trojan-go) | GitHub release | TCP | 自签 ECC · 脚本生成 |
 | 5 | [SOCKS5](https://www.inet.no/dante/) | apk · dante-server | TCP | — |
-| 6 | [AnyTLS](https://github.com/anytls/anytls-go) | GitHub release（SHA256 校验） | TCP | 自签 |
+| 6 | [AnyTLS](https://github.com/anytls/anytls-go) | GitHub release（SHA256 校验） | TCP | 自签 · 程序内置 |
 
 > 安装后均输出 **Surge 节点**，公网 IP 与地区自动检测。
+>
+> **证书说明**：Hysteria2 / Trojan 由脚本用 OpenSSL 预生成 ECC 证书落盘；AnyTLS 由服务端进程启动时自动生成（不落盘）。三者客户端均需 `skip-cert-verify = true`。
 
 ### 功能特性
 

@@ -881,7 +881,10 @@ snell_install() {
 
     step "生成配置"
     local port psk
-    port=$(gen_port); psk=$(gen_secret)
+    ask "端口" "$(gen_port)"; port="$REPLY"
+    ask "PSK"  "$(gen_secret)"; psk="$REPLY"
+    _chk_port "$port" || die "端口无效"
+    _chk_field "$psk" "PSK" || die "PSK 无效"
     snell_write_conf "$port" "$psk" || die "配置写入失败"
     snell_write_init; ok "配置已写入"
 
@@ -971,17 +974,22 @@ at_install() {
     step "创建系统用户"; _ensure_user "$AT_USER"
 
     step "生成配置"
-    local port pass
-    port=$(gen_port); pass=$(gen_secret)
-    at_write_conf "$port" "$pass" "$DEFAULT_SNI" || die "配置写入失败"
+    local port pass sni
+    ask "端口" "$(gen_port)";    port="$REPLY"
+    ask "密码" "$(gen_secret)";  pass="$REPLY"
+    ask "SNI"  "$DEFAULT_SNI";   sni="$REPLY"
+    _chk_port "$port" || die "端口无效"
+    _chk_field "$pass" "密码" || die "密码无效"
+    _chk_field "$sni" "SNI" || die "SNI 无效"
+    at_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
     at_write_init; ok "配置已写入"
 
     step "启动服务"
     svc enable anytls; _restart_wait anytls "AnyTLS 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    at_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI" "$AT_VERSION"
-    at_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    at_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$sni" "$AT_VERSION"
+    at_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$sni"
 }
 
 at_configure() {
@@ -1067,7 +1075,11 @@ ss_install() {
 
     step "生成配置"
     local port pass
-    port=$(gen_port); pass=$(gen_ss_pass)
+    ask "端口" "$(gen_port)";     port="$REPLY"
+    ask "密码(base64)" "$(gen_ss_pass)"; pass="$REPLY"
+    [ "$pass" = "gen" ] && pass=$(gen_ss_pass)
+    _chk_port "$port" || die "端口无效"
+    _chk_field "$pass" "密码" || die "密码无效"
     ss_write_conf "$port" "$pass" || die "配置写入失败"
     ss_write_init; ok "配置已写入"
 
@@ -1152,30 +1164,33 @@ hy_install() {
         confirm "确认继续？" "n" || { ok "已取消"; return; }
         printf "\n"
     fi
-    steps_init 6
+    steps_init 5
     _box "安装 Hysteria2" "${HY_VERSION}"; hr
 
     step "检查并安装依赖"; ensure_pkgs curl openssl
     step "下载并部署二进制"; hy_download "$HY_VERSION"
     step "创建系统用户"; _ensure_user "$HY_USER"
 
-    step "生成自签证书"
-    hy_gen_cert "$DEFAULT_SNI" || die "自签证书生成失败"
-    chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
-    ok "证书已生成（CN=${DEFAULT_SNI}）"
-
     step "生成配置"
-    local port pass
-    port=$(gen_port); pass=$(gen_secret)
-    hy_write_conf "$port" "$pass" "$DEFAULT_SNI" || die "配置写入失败"
+    local port pass sni
+    ask "端口" "$(gen_port)";   port="$REPLY"
+    ask "密码" "$(gen_secret)"; pass="$REPLY"
+    ask "SNI"  "$DEFAULT_SNI";  sni="$REPLY"
+    _chk_port "$port" || die "端口无效"
+    _chk_field "$pass" "密码" || die "密码无效"
+    _chk_field "$sni" "SNI" || die "SNI 无效"
+    mkdir -p "$HY_DIR"
+    hy_gen_cert "$sni" || die "自签证书生成失败"
+    chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
+    hy_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
     hy_write_init; ok "配置已写入"
 
     step "启动服务"
     svc enable hysteria; _restart_wait hysteria "Hysteria2 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    hy_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
-    hy_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    hy_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$sni"
+    hy_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$sni"
 }
 
 hy_configure() {
@@ -1259,30 +1274,33 @@ tj_install() {
         confirm "确认继续？" "n" || { ok "已取消"; return; }
         printf "\n"
     fi
-    steps_init 6
+    steps_init 5
     _box "安装 Trojan" "${TJ_VERSION}"; hr
 
     step "检查并安装依赖"; ensure_pkgs curl openssl unzip
     step "下载并部署二进制"; tj_download "$TJ_VERSION"
     step "创建系统用户"; _ensure_user "$TJ_USER"
 
-    step "生成自签证书"
-    tj_gen_cert "$DEFAULT_SNI" || die "自签证书生成失败"
-    chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
-    ok "证书已生成（CN=${DEFAULT_SNI}）"
-
     step "生成配置"
-    local port pass
-    port=$(gen_port); pass=$(gen_secret)
-    tj_write_conf "$port" "$pass" "$DEFAULT_SNI" || die "配置写入失败"
+    local port pass sni
+    ask "端口" "$(gen_port)";   port="$REPLY"
+    ask "密码" "$(gen_secret)"; pass="$REPLY"
+    ask "SNI"  "$DEFAULT_SNI";  sni="$REPLY"
+    _chk_port "$port" || die "端口无效"
+    _chk_field "$pass" "密码" || die "密码无效"
+    _chk_field "$sni" "SNI" || die "SNI 无效"
+    mkdir -p "$TJ_DIR"
+    tj_gen_cert "$sni" || die "自签证书生成失败"
+    chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
+    tj_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
     tj_write_init; ok "配置已写入"
 
     step "启动服务"
     svc enable trojan-go; _restart_wait trojan-go "Trojan 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    tj_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
-    tj_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    tj_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$sni"
+    tj_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$sni"
 }
 
 tj_configure() {
@@ -1383,7 +1401,12 @@ s5_install() {
 
     step "生成配置"
     local port user pass
-    port=$(gen_port); user="s5user"; pass=$(gen_secret)
+    ask "端口"   "$(gen_port)";   port="$REPLY"
+    ask "用户名" "s5user";        user="$REPLY"
+    ask "密码"   "$(gen_secret)"; pass="$REPLY"
+    _chk_port "$port" || die "端口无效"
+    _chk_field "$user" "用户名" || die "用户名无效"
+    _chk_field "$pass" "密码" || die "密码无效"
     # 创建系统登录用户供 dante 认证
     if ! id "$user" > /dev/null 2>&1; then
         adduser -D -s /sbin/nologin "$user" 2>/dev/null || die "创建认证用户失败"

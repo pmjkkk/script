@@ -30,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/realm.sh |
 | 协议 | 实现 | SNI/证书 | 输出节点 |
 |---|---|---|---|
 | [Snell](https://github.com/surge-networks/snell) | 官方 CDN 二进制，自动探测最新版 | — | Surge |
-| [Shadowsocks](https://github.com/shadowsocks/shadowsocks-rust) | Alpine apk（shadowsocks-rust） | — | Surge / SS URI |
+| [Shadowsocks](https://github.com/shadowsocks/shadowsocks-rust) | Alpine apk（shadowsocks-rust） | — | Surge |
 | [Hysteria2](https://github.com/apernet/hysteria) | GitHub release 二进制 | 自签 ECC 证书 | Surge |
 | [Trojan](https://github.com/p4gefau1t/trojan-go) | GitHub release 二进制 | 自签 ECC 证书 | Surge |
 | [SOCKS5](https://www.inet.no/dante/) | Alpine apk（dante-server） | — | Surge |

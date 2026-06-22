@@ -863,6 +863,18 @@ s5_write_info() {
     { s5_node "$@"; echo; [ -n "$6" ] && printf '# pass: %s\n' "$6"; } > "$S5_INFO"
 }
 
+s5_write_init() {
+    cat > "$S5_INIT" << 'EOF'
+#!/sbin/openrc-run
+name="sockd"
+description="SOCKS5 Proxy Server (dante)"
+command="/usr/sbin/sockd"
+command_args="-D -f /etc/sockd.conf"
+supervisor="supervise-daemon"
+EOF
+    chmod +x "$S5_INIT"
+}
+
 s5_show_summary() {
     # $1=port $2=ip $3=country $4=mode $5=user(可空) $6=pass(可空)
     printf "\n"; _box "SOCKS5" "配置摘要"; hr
@@ -1427,7 +1439,7 @@ s5_install() {
         echo "$user:$pass" | chpasswd 2>/dev/null || die "设置密码失败"
     fi
     s5_write_conf "$port" "username" "$user" || die "配置写入失败"
-    ok "配置已写入"
+    s5_write_init; ok "配置已写入"
 
     step "启动服务"
     svc enable sockd; _restart_wait sockd "SOCKS5 已启动" "启动超时，请手动检查"
@@ -1506,7 +1518,7 @@ s5_uninstall() {
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
     svc stop sockd; svc disable sockd
-    rm -f "$S5_INFO" "$S5_CONF"
+    rm -f "$S5_INFO" "$S5_CONF" "$S5_INIT"
     _del_user "$S5_USER"
     if confirm "是否同时卸载 dante-server apk 包？" "n"; then
         apk del -q dante-server 2>/dev/null || true

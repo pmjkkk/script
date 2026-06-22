@@ -639,17 +639,23 @@ EOF
 }
 
 # 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  失败返回 1
+# 兼容策略：优先 -addext（OpenSSL 1.1.1+），回退到无 SAN（极老版本）
 _gen_cert() {
-    local cn="$1" cert="$2" key="$3" extfile rc
+    local cn="$1" cert="$2" key="$3" rc
     mkdir -p "$(dirname "$cert")"
-    extfile=$(mktemp /tmp/openssl-XXXXXX)
-    printf '[san]\nsubjectAltName=DNS:%s\n' "$cn" > "$extfile"
+    # 优先：-addext（OpenSSL 1.1.1+ / 3.x 均支持）
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
         -keyout "$key" -out "$cert" -days 3650 -nodes \
         -subj "/CN=${cn}" \
-        -extensions san -extfile "$extfile" > /dev/null 2>&1
+        -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1
     rc=$?
-    rm -f "$extfile"
+    # 回退：不带 SAN（极少数不支持 -addext 的老版本）
+    if [ $rc -ne 0 ]; then
+        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+            -keyout "$key" -out "$cert" -days 3650 -nodes \
+            -subj "/CN=${cn}" > /dev/null 2>&1
+        rc=$?
+    fi
     [ $rc -eq 0 ] || return 1
     chmod 600 "$key"
 }
@@ -883,7 +889,7 @@ snell_install() {
     steps_init 5
     _box "安装 Snell" "${SNELL_VERSION}"; hr
 
-    step "检查并安装依赖"; ensure_pkgs unzip curl gcompat upx
+    step "检查并安装依赖"; ensure_pkgs unzip curl gcompat musl-obstack upx
     step "下载并部署二进制"; snell_download "$SNELL_VERSION"
     step "创建系统用户"; _ensure_user "$SNELL_USER"
 

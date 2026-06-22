@@ -864,14 +864,7 @@ s5_write_info() {
 }
 
 s5_write_init() {
-    cat > "$S5_INIT" << 'EOF'
-#!/sbin/openrc-run
-name="sockd"
-description="SOCKS5 Proxy Server (dante)"
-command="/usr/sbin/sockd"
-command_args="-D -f /etc/sockd.conf"
-supervisor="supervise-daemon"
-EOF
+    printf '#!/sbin/openrc-run\nname="sockd"\ndescription="SOCKS5 Proxy Server (dante)"\ncommand="/usr/sbin/sockd"\ncommand_args="-D -f /etc/sockd.conf"\nsupervisor="supervise-daemon"\n' > "$S5_INIT"
     chmod +x "$S5_INIT"
 }
 

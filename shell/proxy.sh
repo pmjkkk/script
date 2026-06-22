@@ -1554,11 +1554,11 @@ _box() {
 # 服务子菜单的固定项
 _svc_menu_items() {
     printf "\n"
-    printf "    ${C}①${Z}  安装 / 重装\n"
-    printf "    ${C}②${Z}  配置修改\n"
-    printf "    ${C}③${Z}  更新版本\n"
-    printf "    ${C}④${Z}  卸载\n"
-    printf "    ${D}0${Z}   ${D}返回${Z}\n\n"
+    printf "    ${C}[1]${Z}  安装 / 重装\n"
+    printf "    ${C}[2]${Z}  配置修改\n"
+    printf "    ${C}[3]${Z}  更新版本\n"
+    printf "    ${C}[4]${Z}  卸载\n"
+    printf "    ${D}[0]  返回${Z}\n\n"
     hr
     printf "   ${C}❯${Z} 请选择 "
 }
@@ -1574,13 +1574,13 @@ show_main_menu() {
     at_is_installed    && ai=1;   at_is_running    && ar=1
     _box "代理服务管理" "Alpine Linux · OpenRC"
     hr
-    printf "    ${C}①${Z}  ${W}Snell${Z}        %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
-    printf "    ${C}②${Z}  ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
-    printf "    ${C}③${Z}  ${W}Hysteria2${Z}    %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
-    printf "    ${C}④${Z}  ${W}Trojan${Z}       %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
-    printf "    ${C}⑤${Z}  ${W}SOCKS5${Z}       %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
-    printf "    ${C}⑥${Z}  ${W}AnyTLS${Z}       %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
-    printf "    ${D}0${Z}   ${D}退出${Z}\n"
+    printf "    ${C}[1]${Z}  ${W}Snell${Z}        %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
+    printf "    ${C}[2]${Z}  ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
+    printf "    ${C}[3]${Z}  ${W}Hysteria2${Z}    %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
+    printf "    ${C}[4]${Z}  ${W}Trojan${Z}       %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
+    printf "    ${C}[5]${Z}  ${W}SOCKS5${Z}       %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
+    printf "    ${C}[6]${Z}  ${W}AnyTLS${Z}       %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
+    printf "    ${D}[0]  退出${Z}\n"
     printf "\n"
     hr
     printf "   ${C}❯${Z} 请选择 ${D}[0-6]${Z} "

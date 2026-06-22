@@ -512,7 +512,7 @@ at_download() {
     fi
     if [ -n "$sha" ]; then
         actual=$(sha256sum "$zip" | awk '{print $1}')
-        [ "$actual" != "$sha" ] && { rm -f "$zip"; die "SHA256 校验失败\n  期望: ${sha}\n  实际: ${actual}"; }
+        [ "$actual" != "$sha" ] && { rm -f "$zip"; die "SHA256 校验失败（期望 ${sha} / 实际 ${actual}）"; }
     else
         warn "无法获取 SHA256，跳过完整性验证"
     fi

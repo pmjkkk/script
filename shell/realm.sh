@@ -86,7 +86,7 @@ backup_config() {
 # 执行服务动作并按期望状态报告结果
 #   svc <action> <up|down> <成功提示> <失败提示>
 svc() {
-    rc-service realm "$1" 2>&1; sleep 1
+    rc-service realm "$1" > /dev/null 2>&1; sleep 1
     local _ok
     if [ "$2" = up ]; then is_running && _ok=1 || _ok=0
     else                   is_running && _ok=0 || _ok=1; fi
@@ -125,9 +125,13 @@ fetch_version() {
 # ---- 状态栏（供 banner 调用）----
 status_line() {
     local s
-    is_installed       && s="${G}● 已安装${N}"    || s="${D}○ 未安装${N}"
-    is_running         && s="$s   ${G}● 运行中${N}" || s="$s   ${Y}● 已停止${N}"
-    is_service_enabled && s="$s   ${G}● 自启${N}"   || s="$s   ${D}○ 自启关${N}"
+    if is_installed; then
+        s="${G}● 已安装${N}"
+        is_running         && s="$s   ${G}● 运行中${N}" || s="$s   ${Y}● 已停止${N}"
+        is_service_enabled && s="$s   ${G}● 自启${N}"   || s="$s   ${D}○ 自启关${N}"
+    else
+        s="${D}○ 未安装${N}"
+    fi
     echo "$s"
 }
 
@@ -593,10 +597,10 @@ manage_service() {
                 if ! is_installed; then
                     die_msg "Realm 未安装"
                 elif is_service_enabled; then
-                    rc-update del realm 2>&1
+                    rc-update del realm > /dev/null 2>&1
                     ok "已取消开机自启"
                 else
-                    rc-update add realm default 2>&1
+                    rc-update add realm default > /dev/null 2>&1
                     ok "已设为开机自启"
                 fi
                 pause "继续"

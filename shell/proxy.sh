@@ -94,7 +94,7 @@ hr()   { printf "${D}  ───────────────────
 # confirm  $1=提示  $2=默认 yes|no（默认 no）—— 仅接受完整 yes/no
 confirm() {
     local msg="$1" def="${2:-no}" ans hint
-    [ "$def" = "yes" ] && hint="${B}YES${Z}/no" || hint="yes/${B}NO${Z}"
+    [ "$def" = "yes" ] && hint="${B}yes${Z}/no" || hint="yes/${B}no${Z}"
     while true; do
         printf "${Y}  %s${Z} [%b]: " "$msg" "$hint"
         read -r ans
@@ -334,7 +334,7 @@ _extract_with_rollback() {
 # §3  摘要渲染
 ###############################################################################
 
-# 键值行（label 已手动补齐至 4 列宽，规避中文宽度对齐问题）
+# 键值行  $1=标签(调用方手动补空格对齐) $2=值 —— 规避中文宽度对齐问题
 _kv()   { printf "    ${D}%s${Z}   %s\n" "$1" "$2"; }
 # Surge 节点块  $1=节点字符串
 _node() { printf "  ${D}───${Z} ${C}Surge 节点${Z} ${D}─────────────────────────────${Z}\n  ${C}%s${Z}\n" "$1"; }

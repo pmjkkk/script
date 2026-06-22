@@ -27,6 +27,22 @@ ok()                 { echo -e "  ${G}✓ $*${N}"; }
 warn()               { echo -e "  ${Y}⚠ $*${N}"; }
 info()               { echo -e "  ${C}! $*${N}"; }
 die_msg()            { echo -e "  ${R}✗ $*${N}"; }
+
+# confirm  $1=提示  $2=默认 yes|no（默认 no）—— 仅接受完整 yes/no
+confirm() {
+    local msg="$1" def="${2:-no}" ans hint
+    [ "$def" = "yes" ] && hint="${B}YES${N}/no" || hint="yes/${B}NO${N}"
+    while true; do
+        echo -ne "  ${Y}${msg}${N} [${hint}]: "
+        read -r ans
+        [ -z "$ans" ] && ans="$def"
+        case "$ans" in
+            yes) return 0 ;;
+            no)  return 1 ;;
+            *)   warn "请输入 yes 或 no" ;;
+        esac
+    done
+}
 _st=0; _st_n=0
 steps_init()         { _st_n="$1"; _st=0; }
 step()               { _st=$((_st+1)); echo -e "  ${C}[$_st/$_st_n]${N} $1"; }
@@ -209,9 +225,7 @@ install_realm() {
     echo ''
 
     if is_installed; then
-        echo -ne "  确认安装/覆盖为 ${C}$latest_ver${N}？[Y/n]: "
-        read -r ans
-        case "$ans" in n|N) warn "已取消"; pause; return ;; esac
+        confirm "确认安装/覆盖为 ${C}$latest_ver${N}？" "yes" || { warn "已取消"; pause; return; }
         echo ''
     fi
 
@@ -288,9 +302,7 @@ _input_one_rule() {
         fi
         # 重复检测
         if grep -q "\"${listen_ip}:${listen_port}\"" "$CONFIG" 2>/dev/null; then
-            echo -ne "  ${Y}⚠ 该监听地址已存在，仍要使用? [y/N]: ${N}"
-            read -r dup
-            case "$dup" in y|Y) ;; *) continue ;; esac
+            confirm "该监听地址已存在，仍要使用?" "no" || continue
         fi
         break
     done
@@ -516,17 +528,14 @@ _rule_backup() {
                     die_msg "编号超出范围"; sleep 1; continue; }
                 eval "target=\"\$bak_$bc\""
                 echo -e "\n  将还原: ${C}$(basename "$target")${N}"
-                echo -ne "  确认还原? 当前配置会先自动备份 [y/N]: "
-                read -r ans
-                case "$ans" in
-                    y|Y)
-                        [ -f "$CONFIG" ] && backup_config >/dev/null
-                        cp "$target" "$CONFIG"
-                        ok "已还原"
-                        apply_config
-                        ;;
-                    *) warn "已取消" ;;
-                esac
+                if confirm "确认还原? 当前配置会先自动备份" "no"; then
+                    [ -f "$CONFIG" ] && backup_config >/dev/null
+                    cp "$target" "$CONFIG"
+                    ok "已还原"
+                    apply_config
+                else
+                    warn "已取消"
+                fi
                 pause "继续"
                 ;;
         esac
@@ -709,12 +718,11 @@ view_logs() {
         case "$lc" in
             1) continue ;;
             2)
-                echo -ne "  确认清空日志? [y/N]: "
-                read -r ans
-                case "$ans" in
-                    y|Y) : > "$LOGFILE"; ok "已清空"; sleep 1 ;;
-                    *)   warn "已取消" ;;
-                esac
+                if confirm "确认清空日志?" "no"; then
+                    : > "$LOGFILE"; ok "已清空"; sleep 1
+                else
+                    warn "已取消"
+                fi
                 ;;
             3)
                 echo -e "${Y}  实时日志 (Ctrl+C 退出)${N}"

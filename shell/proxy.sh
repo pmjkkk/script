@@ -91,14 +91,20 @@ info() { printf "${C}! %s${Z}\n" "$*" >&2; }
 ok()   { printf "${G}✓ %s${Z}\n" "$*"; }
 hr()   { printf "${D}  ──────────────────────────────────────────────${Z}\n"; }
 
-# confirm  $1=提示  $2=默认 y|n（默认 n）
+# confirm  $1=提示  $2=默认 yes|no（默认 no）—— 仅接受完整 yes/no
 confirm() {
-    local msg="$1" def="${2:-n}" ans hint
-    [ "$def" = "y" ] && hint="${B}Y${Z}/n" || hint="y/${B}N${Z}"
-    printf "${Y}  %s${Z} [%b]: " "$msg" "$hint"
-    read -r ans
-    [ -z "$ans" ] && ans="$def"
-    [ "$ans" = "y" ] || [ "$ans" = "Y" ]
+    local msg="$1" def="${2:-no}" ans hint
+    [ "$def" = "yes" ] && hint="${B}YES${Z}/no" || hint="yes/${B}NO${Z}"
+    while true; do
+        printf "${Y}  %s${Z} [%b]: " "$msg" "$hint"
+        read -r ans
+        [ -z "$ans" ] && ans="$def"
+        case "$ans" in
+            yes) return 0 ;;
+            no)  return 1 ;;
+            *)   warn "请输入 yes 或 no" ;;
+        esac
+    done
 }
 
 # ask  $1=提示  $2=默认值 → 结果写入 $REPLY
@@ -287,7 +293,7 @@ _uninstall_common() {
     _box "卸载 $name"
     hr; printf "\n"
     warn "将删除二进制、配置目录及系统用户，操作不可恢复"; printf "\n"
-    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    confirm "确认卸载？" "no" || { ok "已取消"; return; }
     printf "\n"
     svc stop "$service"; svc disable "$service"
     rm -f "$init" "$@"        # 删除 init 脚本 + 二进制 + .bak 备份
@@ -897,7 +903,7 @@ snell_install() {
     printf "\n"
     if snell_is_installed; then
         warn "Snell 已安装（$(snell_get_version)），继续将覆盖现有配置"
-        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        confirm "确认继续？" "no" || { ok "已取消"; return; }
         printf "\n"
     fi
     steps_init 5
@@ -931,7 +937,7 @@ snell_configure() {
     _box "Snell" "当前配置"; hr
     _kv "端口" "$CONF_PORT"; _kv "PSK " "$CONF_PSK"
     hr; printf "\n"
-    confirm "修改配置？" "n" || return
+    confirm "修改配置？" "no" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
     local new_port new_psk
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
@@ -967,7 +973,7 @@ snell_update() {
     new_ver=$(snell_fetch_latest)
     if [ "$old_ver" = "$new_ver" ]; then
         printf "\n"; warn "已是最新版本 (${old_ver})"
-        confirm "仍要重新安装？" "n" || { ok "已取消"; return; }
+        confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${new_ver}${Z}"; printf "\n"
@@ -991,7 +997,7 @@ at_install() {
     printf "\n"
     if at_is_installed; then
         warn "AnyTLS 已安装（$(at_get_version)），继续将覆盖现有配置"
-        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        confirm "确认继续？" "no" || { ok "已取消"; return; }
         printf "\n"
     fi
     steps_init 5
@@ -1027,7 +1033,7 @@ at_configure() {
     _box "AnyTLS" "当前配置"; hr
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
-    confirm "修改配置？" "n" || return
+    confirm "修改配置？" "no" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
     local new_port new_pass new_sni
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
@@ -1067,7 +1073,7 @@ at_update() {
     at_fetch_latest
     if [ "$old_ver" = "$AT_LATEST_VER" ]; then
         printf "\n"; warn "已是最新版本 (${old_ver})"
-        confirm "仍要重新安装？" "n" || { ok "已取消"; return; }
+        confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${AT_LATEST_VER}${Z}"; printf "\n"
@@ -1091,7 +1097,7 @@ ss_install() {
     printf "\n"
     if ss_is_installed; then
         warn "Shadowsocks 已安装（$(ss_get_version)），继续将覆盖现有配置"
-        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        confirm "确认继续？" "no" || { ok "已取消"; return; }
         printf "\n"
     fi
     steps_init 4
@@ -1126,7 +1132,7 @@ ss_configure() {
     _box "Shadowsocks" "当前配置"; hr
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "加密" "$SS_METHOD"
     hr; printf "\n"
-    confirm "修改配置？" "n" || return
+    confirm "修改配置？" "no" || return
     printf "\n${D}  回车保留当前值，输入 gen 自动生成新密钥${Z}\n\n"
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
@@ -1168,13 +1174,13 @@ ss_uninstall() {
     printf "\n"
     _box "卸载 Shadowsocks"; hr; printf "\n"
     warn "将停止服务、删除配置目录及系统用户（保留 apk 包），操作不可恢复"; printf "\n"
-    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    confirm "确认卸载？" "no" || { ok "已取消"; return; }
     printf "\n"
     svc stop shadowsocks; svc disable shadowsocks
     rm -f "$SS_INIT"
     rm -rf /etc/shadowsocks
     _del_user "$SS_USER"
-    if confirm "是否同时卸载 shadowsocks-rust apk 包？" "n"; then
+    if confirm "是否同时卸载 shadowsocks-rust apk 包？" "no"; then
         apk del -q shadowsocks-rust > /dev/null 2>&1 || true
         ok "apk 包已卸载"
     fi
@@ -1189,7 +1195,7 @@ hy_install() {
     printf "\n"
     if hy_is_installed; then
         warn "Hysteria2 已安装（$(hy_get_version)），继续将覆盖现有配置"
-        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        confirm "确认继续？" "no" || { ok "已取消"; return; }
         printf "\n"
     fi
     steps_init 5
@@ -1226,7 +1232,7 @@ hy_configure() {
     _box "Hysteria2" "当前配置"; hr
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
-    confirm "修改配置？" "n" || return
+    confirm "修改配置？" "no" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
     local new_port new_pass new_sni
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
@@ -1272,7 +1278,7 @@ hy_update() {
     hy_fetch_latest
     if [ "$old_ver" = "$HY_LATEST_VER" ]; then
         printf "\n"; warn "已是最新版本 (${old_ver})"
-        confirm "仍要重新安装？" "n" || { ok "已取消"; return; }
+        confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${HY_LATEST_VER}${Z}"; printf "\n"
@@ -1296,7 +1302,7 @@ tj_install() {
     printf "\n"
     if tj_is_installed; then
         warn "Trojan 已安装（$(tj_get_version)），继续将覆盖现有配置"
-        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        confirm "确认继续？" "no" || { ok "已取消"; return; }
         printf "\n"
     fi
     steps_init 5
@@ -1333,7 +1339,7 @@ tj_configure() {
     _box "Trojan" "当前配置"; hr
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
-    confirm "修改配置？" "n" || return
+    confirm "修改配置？" "no" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
     local new_port new_pass new_sni
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
@@ -1379,7 +1385,7 @@ tj_update() {
     tj_fetch_latest
     if [ "$old_ver" = "$TJ_LATEST_VER" ]; then
         printf "\n"; warn "已是最新版本 (${old_ver})"
-        confirm "仍要重新安装？" "n" || { ok "已取消"; return; }
+        confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
         ok "发现新版本: ${D}${old_ver}${Z} → ${G}${TJ_LATEST_VER}${Z}"; printf "\n"
@@ -1403,7 +1409,7 @@ s5_install() {
     printf "\n"
     if s5_is_installed; then
         warn "SOCKS5 已安装（$(s5_get_version)），继续将覆盖现有配置"
-        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        confirm "确认继续？" "no" || { ok "已取消"; return; }
         printf "\n"
     fi
     steps_init 4
@@ -1461,7 +1467,7 @@ s5_configure() {
         _kv "认证" "无"
     fi
     hr; printf "\n"
-    confirm "修改配置？" "n" || return
+    confirm "修改配置？" "no" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
@@ -1513,7 +1519,7 @@ s5_uninstall() {
     printf "\n"
     _box "卸载 SOCKS5"; hr; printf "\n"
     warn "将停止服务、删除配置及系统用户（保留 apk 包），操作不可恢复"; printf "\n"
-    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    confirm "确认卸载？" "no" || { ok "已取消"; return; }
     printf "\n"
     # 读取认证用户名（需在删除配置前）
     s5_read_conf 2>/dev/null
@@ -1522,7 +1528,7 @@ s5_uninstall() {
     _del_user "$S5_USER"
     # 删除认证登录用户（安装时由 adduser+chpasswd 创建）
     [ -n "$CONF_USER" ] && [ "$CONF_USER" != "$S5_USER" ] && _del_user "$CONF_USER"
-    if confirm "是否同时卸载 dante-server apk 包？" "n"; then
+    if confirm "是否同时卸载 dante-server apk 包？" "no"; then
         apk del -q dante-server 2>/dev/null || true
         ok "apk 包已卸载"
     fi

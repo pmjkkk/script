@@ -176,11 +176,12 @@ fetch_public_ip() {
     PUB_COUNTRY="${PUB_COUNTRY:-未知}"
 }
 
+# 端口占用检测（TCP + UDP）  $1=端口
 _port_in_use() {
     if   command -v ss      > /dev/null 2>&1; then
-        ss -tlnp 2>/dev/null | grep -qE ":${1}( |$)"
+        ss -tulnp 2>/dev/null | grep -qE ":${1}( |$)"
     elif command -v netstat > /dev/null 2>&1; then
-        netstat -tlnp 2>/dev/null | grep -qE ":${1}( |$)"
+        netstat -tulnp 2>/dev/null | grep -qE ":${1}( |$)"
     else
         return 1
     fi
@@ -350,6 +351,7 @@ snell_read_conf() {
     [ -f "$SNELL_CONF" ] || return 1
     CONF_PORT=$(grep '^listen' "$SNELL_CONF" | sed 's/.*://')
     CONF_PSK=$(grep  '^psk'    "$SNELL_CONF" | sed 's/^psk = //')
+    return 0
 }
 
 snell_write_conf() {

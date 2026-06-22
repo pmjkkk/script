@@ -372,7 +372,7 @@ manage_rules() {
         echo -e "   ${C}[2]${N}  删除规则"
         echo -e "   ${C}[3]${N}  重置所有规则"
         echo -e "   ${C}[4]${N}  备份 / 还原"
-        echo -e "   ${D}0  返回主菜单${N}\n"
+        echo -e "   ${D}[0]  返回主菜单${N}\n"
         echo -ne "   ${C}❯${N} 请选择 ${D}[0-4]${N} "
         read -r choice
 
@@ -555,7 +555,7 @@ manage_service() {
         echo -e "   ${C}[2]${N}  停止"
         echo -e "   ${C}[3]${N}  重启"
         echo -e "   ${C}[4]${N}  开机自启"
-        echo -e "   ${D}0  返回主菜单${N}\n"
+        echo -e "   ${D}[0]  返回主菜单${N}\n"
         echo -ne "   ${C}❯${N} 请选择 ${D}[0-4]${N} "
         read -r choice
 

@@ -748,20 +748,7 @@ tj_node() {
 tj_write_info() { { tj_node "$@"; echo; } > "$TJ_INFO"; }
 
 tj_write_init() {
-    cat > "$TJ_INIT" << 'EOF'
-#!/sbin/openrc-run
-name="trojan-go"
-description="Trojan-Go Proxy Server"
-command="/usr/local/bin/trojan-go"
-command_args="-config /etc/trojan-go/config.json"
-command_user="trojan"
-supervisor="supervise-daemon"
-
-start_pre() {
-    # trojan-go 需要回落 HTTP 服务在 127.0.0.1:8080
-    busybox httpd -p 127.0.0.1:8080 -h /tmp 2>/dev/null || true
-}
-EOF
+    printf '#!/sbin/openrc-run\nname="trojan-go"\ndescription="Trojan-Go Proxy Server"\ncommand="/usr/local/bin/trojan-go"\ncommand_args="-config /etc/trojan-go/config.json"\ncommand_user="trojan"\nsupervisor="supervise-daemon"\n\nstart_pre() {\n    busybox httpd -p 127.0.0.1:8080 -h /tmp 2>/dev/null || true\n}\n' > "$TJ_INIT"
     chmod +x "$TJ_INIT"
 }
 

@@ -89,7 +89,7 @@ die()  { printf "\n${R}✗ %s${Z}\n" "$*" >&2; exit 1; }
 warn() { printf "${Y}⚠ %s${Z}\n" "$*" >&2; }
 info() { printf "${C}! %s${Z}\n" "$*" >&2; }
 ok()   { printf "${G}✓ %s${Z}\n" "$*"; }
-hr()   { printf "${D}  ──────────────────────────────────────────${Z}\n"; }
+hr()   { printf "${D}  ──────────────────────────────────────────────${Z}\n"; }
 
 # confirm  $1=提示  $2=默认 y|n（默认 n）
 confirm() {
@@ -328,9 +328,9 @@ _extract_with_rollback() {
 ###############################################################################
 
 # 键值行（label 已手动补齐至 4 列宽，规避中文宽度对齐问题）
-_kv()   { printf "    ${D}%s${Z}  %s\n" "$1" "$2"; }
+_kv()   { printf "    ${D}%s${Z}   %s\n" "$1" "$2"; }
 # Surge 节点块  $1=节点字符串
-_node() { printf "  ${D}Surge 节点:${Z}\n  ${C}%s${Z}\n" "$1"; }
+_node() { printf "  ${D}───${Z} ${C}Surge 节点${Z} ${D}─────────────────────────────${Z}\n  ${C}%s${Z}\n" "$1"; }
 
 ###############################################################################
 # §4  Snell
@@ -1535,32 +1535,32 @@ s5_uninstall() {
 _status_line() {
     if [ "$1" = "1" ]; then
         [ "$2" = "1" ] && printf "${G}● 运行中${Z}  ${D}%s${Z}" "$3" \
-                       || printf "${Y}○ 已停止${Z}  ${D}%s${Z}" "$3"
+                       || printf "${Y}● 已停止${Z}  ${D}%s${Z}" "$3"
     else
         printf "${D}○ 未安装${Z}"
     fi
 }
 
-# 标题头  $1=主标题  $2=副标题(可选) —— 无边框，规避中文宽度对齐问题
+# 标题头  $1=主标题  $2=副标题(可选) —— 顶部装饰线，左对齐规避中文宽度对齐问题
 _box() {
     printf "\n"
     if [ -n "$2" ]; then
-        printf "  ${C}◆${Z} ${W}${B}%s${Z} ${D}%s${Z}\n" "$1" "$2"
+        printf "  ${C}╭───${Z} ${W}${B}%s${Z}  ${D}%s${Z}\n" "$1" "$2"
     else
-        printf "  ${C}◆${Z} ${W}${B}%s${Z}\n" "$1"
+        printf "  ${C}╭───${Z} ${W}${B}%s${Z}\n" "$1"
     fi
 }
 
 # 服务子菜单的固定项
 _svc_menu_items() {
+    printf "\n"
+    printf "    ${C}①${Z}  安装 / 重装\n"
+    printf "    ${C}②${Z}  配置修改\n"
+    printf "    ${C}③${Z}  更新版本\n"
+    printf "    ${C}④${Z}  卸载\n"
+    printf "    ${D}0${Z}   ${D}返回${Z}\n\n"
     hr
-    printf "   ${C}1${Z}  安装 / 重装\n"
-    printf "   ${C}2${Z}  配置\n"
-    printf "   ${C}3${Z}  更新\n"
-    printf "   ${C}4${Z}  卸载\n"
-    printf "   ${D}0  返回${Z}\n\n"
-    hr
-    printf "   请选择 ${W}❯${Z} "
+    printf "   ${C}❯${Z} 请选择 "
 }
 
 show_main_menu() {
@@ -1572,25 +1572,18 @@ show_main_menu() {
     tj_is_installed    && ti=1;   tj_is_running    && tr=1
     s5_is_installed    && s5i=1;  s5_is_running    && s5r=1
     at_is_installed    && ai=1;   at_is_running    && ar=1
-    _box "代理服务管理" "Alpine Linux 专用"
+    _box "代理服务管理" "Alpine Linux · OpenRC"
     hr
-    printf "    ${W}Snell      ${Z}  %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
-    printf "    ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
-    printf "    ${W}Hysteria2  ${Z}  %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
-    printf "    ${W}Trojan     ${Z}  %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
-    printf "    ${W}SOCKS5     ${Z}  %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
-    printf "    ${W}AnyTLS     ${Z}  %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
-    hr
+    printf "    ${C}①${Z}  ${W}Snell${Z}        %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
+    printf "    ${C}②${Z}  ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
+    printf "    ${C}③${Z}  ${W}Hysteria2${Z}    %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
+    printf "    ${C}④${Z}  ${W}Trojan${Z}       %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
+    printf "    ${C}⑤${Z}  ${W}SOCKS5${Z}       %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
+    printf "    ${C}⑥${Z}  ${W}AnyTLS${Z}       %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
+    printf "    ${D}0${Z}   ${D}退出${Z}\n"
     printf "\n"
-    printf "   ${C}1${Z}  管理 Snell\n"
-    printf "   ${C}2${Z}  管理 Shadowsocks\n"
-    printf "   ${C}3${Z}  管理 Hysteria2\n"
-    printf "   ${C}4${Z}  管理 Trojan\n"
-    printf "   ${C}5${Z}  管理 SOCKS5\n"
-    printf "   ${C}6${Z}  管理 AnyTLS\n"
-    printf "   ${D}0  退出${Z}\n\n"
     hr
-    printf "   请选择 ${D}[0-6]${Z} ${W}❯${Z} "
+    printf "   ${C}❯${Z} 请选择 ${D}[0-6]${Z} "
     read -r CHOICE
 }
 
@@ -1605,8 +1598,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 snell_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SNELL_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
             fi
             _box "Snell Server" "管理" ;;
         ss)
@@ -1615,8 +1608,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 ss_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SS_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
             fi
             _box "Shadowsocks Server" "管理" ;;
         hy)
@@ -1625,8 +1618,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 hy_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$HY_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
             fi
             _box "Hysteria2 Server" "管理" ;;
         tj)
@@ -1635,8 +1628,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 tj_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$TJ_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
             fi
             _box "Trojan Server" "管理" ;;
         s5)
@@ -1645,8 +1638,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 s5_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$S5_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
             fi
             _box "SOCKS5 Server" "管理" ;;
         at)
@@ -1655,13 +1648,13 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 at_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
             fi
             _box "AnyTLS Server" "管理" ;;
     esac
     hr
-    printf "    状态  %b\n" "$(_status_line $inst $run "$ver")"
+    printf "    ${D}状态${Z}   %b\n" "$(_status_line $inst $run "$ver")"
     [ -n "$extra" ] && printf "    ${D}%b${Z}\n" "$extra"
     _svc_menu_items
     read -r CHOICE

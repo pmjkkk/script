@@ -797,7 +797,9 @@ s5_get_version() {
 s5_read_conf() {
     [ -f "$S5_CONF" ] || return 1
     CONF_PORT=$(grep '^internal:' "$S5_CONF" | grep -oE 'port=[0-9]+' | head -1 | sed 's/port=//')
-    if grep -q 'socksmethod: username' "$S5_CONF"; then
+    CONF_MODE=$(grep '^socksmethod:' "$S5_CONF" | awk '{print $2}' | head -1)
+    [ -z "$CONF_MODE" ] && CONF_MODE="none"
+    if [ "$CONF_MODE" = "username" ]; then
         CONF_USER=$(grep '^user\.notprivileged:' "$S5_CONF" | awk '{print $2}' | head -1)
         CONF_PASS=$(grep '^# pass:' "$S5_INFO" 2>/dev/null | sed 's/^# pass:[[:space:]]*//')
     else
@@ -1406,14 +1408,23 @@ s5_configure() {
     s5_read_conf
     _box "SOCKS5" "当前配置"; hr
     _kv "端口" "$CONF_PORT"
-    [ -n "$CONF_USER" ] && _kv "用户" "$CONF_USER"
-    [ -n "$CONF_PASS" ] && _kv "密码" "$CONF_PASS"
+    if [ "$CONF_MODE" = "username" ]; then
+        _kv "认证" "用户名密码"
+        _kv "用户" "$CONF_USER"
+        _kv "密码" "$CONF_PASS"
+    else
+        _kv "认证" "无"
+    fi
     hr; printf "\n"
     confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
-    [ -n "$CONF_USER" ] && { ask "密码" "$CONF_PASS"; new_pass="$REPLY"; } || new_pass=""
+    if [ "$CONF_MODE" = "username" ]; then
+        ask "密码" "$CONF_PASS"; new_pass="$REPLY"
+    else
+        new_pass=""
+    fi
     printf "\n"
     _chk_port "$new_port" || return
     [ -n "$new_pass" ] && { _chk_field "$new_pass" "密码" || return; }
@@ -1422,14 +1433,12 @@ s5_configure() {
     svc stop sockd
     _port_busy_guard "$new_port" "$CONF_PORT" sockd || return
     cp "$S5_CONF" "$S5_CONF_BAK" 2>/dev/null
-    # 更新端口
     sed -i "s/port=[0-9]*/port=${new_port}/g" "$S5_CONF" || {
         [ -f "$S5_CONF_BAK" ] && mv "$S5_CONF_BAK" "$S5_CONF"
         warn "配置写入失败，已恢复"; svc start sockd; return
     }
     rm -f "$S5_CONF_BAK"
-    # 更新密码（用户名不变）
-    if [ -n "$CONF_USER" ] && [ -n "$new_pass" ] && [ "$new_pass" != "$CONF_PASS" ]; then
+    if [ "$CONF_MODE" = "username" ] && [ -n "$new_pass" ] && [ "$new_pass" != "$CONF_PASS" ]; then
         if ! printf '%s:%s\n' "$CONF_USER" "$new_pass" | chpasswd 2>/dev/null; then
             echo "$CONF_USER:$new_pass" | chpasswd 2>/dev/null || { warn "密码更新失败"; svc start sockd; return; }
         fi
@@ -1438,10 +1447,8 @@ s5_configure() {
     fi
     _restart_wait sockd "新配置已生效"
     fetch_public_ip
-    local mode="none"
-    [ -n "$CONF_USER" ] && mode="username"
-    s5_write_info "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" "$new_pass"
-    s5_show_summary "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" "$new_pass"
+    s5_write_info "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$CONF_MODE" "$CONF_USER" "$new_pass"
+    s5_show_summary "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$CONF_MODE" "$CONF_USER" "$new_pass"
 }
 
 s5_update() {

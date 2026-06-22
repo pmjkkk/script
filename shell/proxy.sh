@@ -152,9 +152,9 @@ ensure_pkgs() {
         apk info -e "$p" > /dev/null 2>&1 || missing="$missing $p"
     done
     [ -z "$missing" ] && return 0
-    apk update -q > /dev/null 2>&1 || die "apk update 失败"
+    apk update -q > /dev/null 2>&1 || true   # 单个 mirror 故障不中断
     # shellcheck disable=SC2086
-    apk add -q $missing > /dev/null 2>&1 || die "apk add 失败"
+    apk add -q $missing > /dev/null 2>&1 || die "安装依赖失败:${missing}"
 }
 
 # 公网 IP + 国家 → PUB_IP / PUB_COUNTRY（单次 Cloudflare trace，失败兜底 ipify）
@@ -633,11 +633,16 @@ EOF
 
 # 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  失败返回 1
 _gen_cert() {
-    local cn="$1" cert="$2" key="$3"
+    local cn="$1" cert="$2" key="$3" extfile
+    extfile=$(mktemp /tmp/openssl-ext-XXXXXX.cnf)
+    printf '[san]\nsubjectAltName=DNS:%s\n' "$cn" > "$extfile"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
         -keyout "$key" -out "$cert" -days 3650 -nodes \
-        -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
-        || return 1
+        -subj "/CN=${cn}" \
+        -extensions san -extfile "$extfile" > /dev/null 2>&1
+    local rc=$?
+    rm -f "$extfile"
+    [ $rc -eq 0 ] || return 1
     chmod 600 "$key"
 }
 
@@ -1361,7 +1366,15 @@ s5_install() {
     steps_init 4
     _box "安装 SOCKS5" "dante-server"; hr
 
-    step "检查并安装依赖"; ensure_pkgs dante-server
+    step "检查并安装依赖"
+    # dante-server 在 community 仓库，确保已启用
+    if ! grep -q 'community' /etc/apk/repositories 2>/dev/null; then
+        sed -i 's|/main$|/main\n&/../community|' /etc/apk/repositories 2>/dev/null || \
+            echo "http://dl-cdn.alpinelinux.org/alpine/$(cut -d. -f1-2 /etc/alpine-release)/community" \
+                >> /etc/apk/repositories
+        apk update -q > /dev/null 2>&1 || true
+    fi
+    ensure_pkgs dante-server
     [ -f "$S5_BIN" ] || die "sockd 未找到，apk 安装可能失败"
     step "创建系统用户"; _ensure_user "$S5_USER"
 

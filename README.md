@@ -18,7 +18,7 @@ Alpine Linux 运维脚本集。
 **功能**：安装/升级、转发规则增删改查、服务管理、状态查看、日志、一键卸载。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/realm.sh | ash
+curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 ---
@@ -42,5 +42,5 @@ curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/realm.sh |
 > 自签证书协议（Hysteria2 / Trojan / AnyTLS）客户端需配置 `skip-cert-verify = true`
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/proxy.sh | ash
+curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/proxy.sh -o proxy.sh && chmod +x proxy.sh && ./proxy.sh
 ```

@@ -152,11 +152,9 @@ ensure_pkgs() {
         apk info -e "$p" > /dev/null 2>&1 || missing="$missing $p"
     done
     [ -z "$missing" ] && return 0
-    info "安装缺失依赖:${missing}"
-    apk update -q || die "apk update 失败"
+    apk update -q > /dev/null 2>&1 || die "apk update 失败"
     # shellcheck disable=SC2086
-    apk add -q $missing || die "apk add 失败"
-    ok "依赖安装完成"
+    apk add -q $missing > /dev/null 2>&1 || die "apk add 失败"
 }
 
 # 公网 IP + 国家 → PUB_IP / PUB_COUNTRY（单次 Cloudflare trace，失败兜底 ipify）
@@ -402,11 +400,9 @@ snell_fetch_latest() {
 
 snell_download() {
     local ver="${1:-$SNELL_VERSION}" zip="/tmp/snell-$$.zip"
-    info "下载 Snell ${ver} ..."
     _fetch "$(_snell_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     _extract_with_rollback "$zip" "$SNELL_BIN" "$SNELL_BIN_BAK" snell-server Snell
     upx -d "$SNELL_BIN" > /dev/null 2>&1 || true
-    ok "Snell ${ver} 部署完成"
 }
 
 ###############################################################################
@@ -491,7 +487,6 @@ at_fetch_latest() {
 at_download() {
     # $1=版本  $2=SHA256（可选，为空则单独查询）
     local ver="${1:-$AT_VERSION}" sha="${2:-}" zip="/tmp/anytls-$$.zip" actual json
-    info "下载 AnyTLS ${ver} ..."
     _fetch "$(_at_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     if [ -z "$sha" ]; then
         json=$(curl -sf --connect-timeout 5 --max-time 10 "${AT_API}/tags/${ver}")
@@ -500,12 +495,10 @@ at_download() {
     if [ -n "$sha" ]; then
         actual=$(sha256sum "$zip" | awk '{print $1}')
         [ "$actual" != "$sha" ] && { rm -f "$zip"; die "SHA256 校验失败\n  期望: ${sha}\n  实际: ${actual}"; }
-        ok "SHA256 校验通过"
     else
         warn "无法获取 SHA256，跳过完整性验证"
     fi
     _extract_with_rollback "$zip" "$AT_BIN" "$AT_BIN_BAK" anytls-server AnyTLS
-    ok "AnyTLS ${ver} 部署完成"
 }
 
 ###############################################################################
@@ -642,7 +635,7 @@ EOF
 _gen_cert() {
     local cn="$1" cert="$2" key="$3"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-        -keyout "$key" -out "$cert" -days 3650 -noenc \
+        -keyout "$key" -out "$cert" -days 3650 -nodes \
         -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
         || return 1
     chmod 600 "$key"
@@ -674,7 +667,6 @@ hy_fetch_latest() {
 
 hy_download() {
     local ver="${1:-$HY_VERSION}" bin="/tmp/hysteria-$$"
-    info "下载 Hysteria2 ${ver} ..."
     _fetch "$(_hy_url "$ver")" "$bin" || { rm -f "$bin"; die "下载失败，请检查网络"; }
     [ -s "$bin" ] || { rm -f "$bin"; die "下载文件为空"; }
     [ -f "$HY_BIN" ] && cp "$HY_BIN" "$HY_BIN_BAK"
@@ -684,7 +676,6 @@ hy_download() {
     fi
     rm -f "$HY_BIN_BAK"
     chmod +x "$HY_BIN"
-    ok "Hysteria2 ${ver} 部署完成"
 }
 
 ###############################################################################
@@ -772,7 +763,6 @@ tj_fetch_latest() {
 
 tj_download() {
     local ver="${1:-$TJ_VERSION}" zip="/tmp/trojan-go-$$.zip"
-    info "下载 Trojan-Go ${ver} ..."
     _fetch "$(_tj_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
     [ -s "$zip" ] || { rm -f "$zip"; die "下载文件为空"; }
     [ -f "$TJ_BIN" ] && cp "$TJ_BIN" "$TJ_BIN_BAK"
@@ -783,7 +773,6 @@ tj_download() {
     fi
     rm -f "$zip" "$TJ_BIN_BAK"
     chmod +x "$TJ_BIN"
-    ok "Trojan-Go ${ver} 部署完成"
 }
 
 ###############################################################################
@@ -811,13 +800,16 @@ s5_read_conf() {
     return 0
 }
 
-# $1=port $2=认证模式(none|user)
+# $1=port $2=认证模式(none|username)
 s5_write_conf() {
-    local method="${2:-none}"
+    local method="${2:-none}" iface
+    iface=$(ip route 2>/dev/null | awk '/^default/{print $5; exit}')
+    [ -z "$iface" ] && iface=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
+    [ -z "$iface" ] && iface="eth0"
     cat > "$S5_CONF" << EOF
-logoutput: /var/log/sockd.log
-internal: :: port=$1
-external: 0.0.0.0
+logoutput: syslog
+internal: 0.0.0.0 port=$1
+external: $iface
 socksmethod: ${method}
 user.privileged: root
 user.notprivileged: $S5_USER

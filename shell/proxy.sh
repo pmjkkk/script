@@ -620,7 +620,7 @@ EOF
 
 # 节点字符串  $1=port $2=pass $3=ip $4=country $5=sni
 hy_node() {
-    printf '%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true, download-bandwidth=200, upload-bandwidth=50' \
+    printf '%s = hysteria2, %s, %s, password=%s, sni=%s, skip-cert-verify=true, download-bandwidth=200' \
         "$4" "$3" "$1" "$2" "$5"
 }
 hy_write_info() { { hy_node "$@"; echo; } > "$HY_INFO"; }
@@ -638,10 +638,10 @@ EOF
     chmod +x "$HY_INIT"
 }
 
-# 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  失败返回 1
+# 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  $4=属主(可选)  失败返回 1
 # 兼容策略：优先 -addext（OpenSSL 1.1.1+），回退到无 SAN（极老版本）
 _gen_cert() {
-    local cn="$1" cert="$2" key="$3" rc
+    local cn="$1" cert="$2" key="$3" owner="$4" rc
     mkdir -p "$(dirname "$cert")"
     # 优先：-addext（OpenSSL 1.1.1+ / 3.x 均支持）
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
@@ -658,10 +658,12 @@ _gen_cert() {
     fi
     [ $rc -eq 0 ] || return 1
     chmod 600 "$key"
+    [ -n "$owner" ] && chown "$owner" "$cert" "$key" 2>/dev/null
+    return 0
 }
 
-hy_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$HY_CERT" "$HY_KEY"; }
-tj_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$TJ_CERT" "$TJ_KEY"; }
+hy_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$HY_CERT" "$HY_KEY" "$HY_USER"; }
+tj_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$TJ_CERT" "$TJ_KEY" "$TJ_USER"; }
 
 hy_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
@@ -1200,7 +1202,6 @@ hy_install() {
     _chk_field "$pass" "密码" || return
     _chk_field "$sni" "SNI" || return
     hy_gen_cert "$sni" || die "自签证书生成失败"
-    chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
     hy_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
     hy_write_init; ok "配置已写入"
 
@@ -1245,7 +1246,6 @@ hy_configure() {
             [ -f "$HY_CONF_BAK" ] && mv "$HY_CONF_BAK" "$HY_CONF"
             warn "证书生成失败，已回滚配置"; svc start hysteria; return
         }
-        chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
     fi
     rm -f "$HY_CONF_BAK"
     _restart_wait hysteria "新配置已生效"
@@ -1309,7 +1309,6 @@ tj_install() {
     _chk_field "$pass" "密码" || return
     _chk_field "$sni" "SNI" || return
     tj_gen_cert "$sni" || die "自签证书生成失败"
-    chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
     tj_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
     tj_write_init; ok "配置已写入"
 
@@ -1354,7 +1353,6 @@ tj_configure() {
             [ -f "$TJ_CONF_BAK" ] && mv "$TJ_CONF_BAK" "$TJ_CONF"
             warn "证书生成失败，已回滚配置"; svc start trojan-go; return
         }
-        chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
     fi
     rm -f "$TJ_CONF_BAK"
     _restart_wait trojan-go "新配置已生效"
@@ -1566,8 +1564,7 @@ show_main_menu() {
     tj_is_installed    && ti=1;   tj_is_running    && tr=1
     s5_is_installed    && s5i=1;  s5_is_running    && s5r=1
     at_is_installed    && ai=1;   at_is_running    && ar=1
-    _box "代理服务管理" "Snell · SS · Hysteria2 · Trojan · SOCKS5 · AnyTLS"
-    printf "    ${D}Alpine Linux 专用${Z}\n"
+    _box "代理服务管理" "Alpine Linux 专用"
     hr
     printf "    ${W}Snell      ${Z}  %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
     printf "    ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"

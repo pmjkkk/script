@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/pmjkkk/script/main/shell/realm.sh |
 | [Shadowsocks](https://github.com/shadowsocks/shadowsocks-rust) | Alpine apk（shadowsocks-rust） | — | Surge / SS URI |
 | [Hysteria2](https://github.com/apernet/hysteria) | GitHub release 二进制 | 自签 ECC 证书 | Surge |
 | [Trojan](https://github.com/p4gefau1t/trojan-go) | GitHub release 二进制 | 自签 ECC 证书 | Surge |
-| [SOCKS5](https://www.inet.no/dante/) | Alpine apk（dante-server） | — | socks5:// URI |
+| [SOCKS5](https://www.inet.no/dante/) | Alpine apk（dante-server） | — | Surge |
 | [AnyTLS](https://github.com/anytls/anytls-go) | GitHub release 二进制 + SHA256 校验 | 自签证书 | Surge |
 
 **功能**：安装/配置/更新/卸载、随机端口、自动生成密钥、公网 IP 与地区检测、Surge 节点输出、服务开机自启。

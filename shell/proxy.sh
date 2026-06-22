@@ -835,31 +835,30 @@ socks pass {
 EOF
 }
 
-s5_write_info() {
-    # $1=port $2=ip $3=country $4=mode $5=user(可空)
-    if [ "$4" = "user" ]; then
-        printf '%s  socks5://%s:%s@%s:%s\n' "$3" "$5" "(密码见安装时输出)" "$2" "$1" > "$S5_INFO"
+s5_node() {
+    # $1=port $2=ip $3=country $4=mode $5=user(可空) $6=pass(可空)
+    if [ "$4" = "username" ]; then
+        printf '%s = socks5, %s, %s, username=%s, password=%s' "$3" "$2" "$1" "$5" "$6"
     else
-        printf '%s  socks5://%s:%s\n' "$3" "$2" "$1" > "$S5_INFO"
+        printf '%s = socks5, %s, %s' "$3" "$2" "$1"
     fi
+}
+
+s5_write_info() {
+    # $1=port $2=ip $3=country $4=mode $5=user(可空) $6=pass(可空)
+    { s5_node "$@"; echo; } > "$S5_INFO"
 }
 
 s5_show_summary() {
     # $1=port $2=ip $3=country $4=mode $5=user(可空) $6=pass(可空)
     printf "\n"; _box "SOCKS5" "配置摘要"; hr
     _kv "地区" "$3"; _kv "IP  " "$2"; _kv "端口" "$1"
-    if [ "$4" = "user" ]; then
+    if [ "$4" = "username" ]; then
         _kv "认证" "用户名密码"; _kv "用户" "$5"; _kv "密码" "$6"
-        hr
-        printf "  ${D}节点:${Z}\n"
-        printf "  ${C}socks5://%s:%s@%s:%s${Z}\n" "$5" "$6" "$2" "$1"
     else
         _kv "认证" "无（开放）"
-        hr
-        printf "  ${D}节点:${Z}\n"
-        printf "  ${C}socks5://%s:%s${Z}\n" "$2" "$1"
     fi
-    hr; printf "\n"
+    hr; _node "$(s5_node "$@")"; hr; printf "\n"
 }
 
 ###############################################################################
@@ -1380,6 +1379,7 @@ s5_install() {
     printf "${Y}  认证模式${Z} [${B}1${Z}=无认证  ${B}2${Z}=用户名密码]: "
     read -r mode
     if [ "$mode" = "2" ]; then
+        mode="username"
         ask "用户名"; user="$REPLY"
         ask "密码";   pass="$REPLY"
         _chk_field "$user" "用户名" || return
@@ -1433,7 +1433,7 @@ s5_configure() {
     rm -f "$S5_CONF_BAK"
     _restart_wait sockd "新配置已生效"
     local mode="none"
-    grep -q 'socksmethod: username' "$S5_CONF" && mode="user"
+    grep -q 'socksmethod: username' "$S5_CONF" && mode="username"
     fetch_public_ip
     s5_write_info "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER"
     s5_show_summary "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" ""

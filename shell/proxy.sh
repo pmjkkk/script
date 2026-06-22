@@ -722,6 +722,7 @@ tj_read_conf() {
 
 tj_write_conf() {
     # $1=port $2=password $3=sni
+    # remote_addr 指向自身（trojan-go 只在启动时测试连通性，指向自身可正常启动）
     mkdir -p "$TJ_DIR" || return 1
     cat > "$TJ_CONF" << EOF
 {
@@ -729,7 +730,7 @@ tj_write_conf() {
     "local_addr": "::",
     "local_port": $1,
     "remote_addr": "127.0.0.1",
-    "remote_port": 8080,
+    "remote_port": $1,
     "password": ["$2"],
     "ssl": {
         "cert": "$TJ_CERT",
@@ -748,7 +749,15 @@ tj_node() {
 tj_write_info() { { tj_node "$@"; echo; } > "$TJ_INFO"; }
 
 tj_write_init() {
-    printf '#!/sbin/openrc-run\nname="trojan-go"\ndescription="Trojan-Go Proxy Server"\ncommand="/usr/local/bin/trojan-go"\ncommand_args="-config /etc/trojan-go/config.json"\ncommand_user="trojan"\nsupervisor="supervise-daemon"\n\nstart_pre() {\n    # trojan-go 需要 remote_addr 可连，启动哑 TCP 服务作回落\n    nc -lk -s 127.0.0.1 -p 8080 &>/dev/null &\n    sleep 1\n}\n\nstop_post() {\n    kill $(pgrep -f "nc -lk -s 127.0.0.1 -p 8080") 2>/dev/null || true\n}\n' > "$TJ_INIT"
+    cat > "$TJ_INIT" << 'EOF'
+#!/sbin/openrc-run
+name="trojan-go"
+description="Trojan-Go Proxy Server"
+command="/usr/local/bin/trojan-go"
+command_args="-config /etc/trojan-go/config.json"
+command_user="trojan"
+supervisor="supervise-daemon"
+EOF
     chmod +x "$TJ_INIT"
 }
 

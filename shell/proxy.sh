@@ -239,12 +239,19 @@ _chk_port() {
     return 0
 }
 
-# 字段校验：非空 / 不含空白 / 不含配置文件危险字符  $1=值  $2=字段名
+# 端口校验 + 占用检测（用于 install）  $1=端口
+_chk_port_free() {
+    _chk_port "$1" || return 1
+    _port_in_use "$1" && { warn "端口 $1 已被占用，操作取消"; return 1; }
+    return 0
+}
+
+# 字段校验：非空 / 不含空白 / 不含配置文件危险字符（" \ #）  $1=值  $2=字段名
 _chk_field() {
     [ -z "$1" ] && { warn "$2 不能为空，操作取消"; return 1; }
     case "$1" in *' '*|*"	"*) warn "$2 不能含空白，操作取消"; return 1 ;; esac
     # shellcheck disable=SC1003
-    case "$1" in *'"'*|*'\'*|*"#"*) warn "$2 不能含 \" \\ # 或单引号，操作取消"; return 1 ;; esac
+    case "$1" in *'"'*|*'\'*|*"#"*) warn "$2 不能含 \" \\ # 字符，操作取消"; return 1 ;; esac
     return 0
 }
 
@@ -634,6 +641,7 @@ EOF
 # 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  失败返回 1
 _gen_cert() {
     local cn="$1" cert="$2" key="$3" extfile rc
+    mkdir -p "$(dirname "$cert")"
     extfile=$(mktemp /tmp/openssl-XXXXXX)
     printf '[san]\nsubjectAltName=DNS:%s\n' "$cn" > "$extfile"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
@@ -883,8 +891,8 @@ snell_install() {
     local port psk
     ask "端口" "$(gen_port)"; port="$REPLY"
     ask "PSK"  "$(gen_secret)"; psk="$REPLY"
-    _chk_port "$port" || die "端口无效"
-    _chk_field "$psk" "PSK" || die "PSK 无效"
+    _chk_port_free "$port" || return
+    _chk_field "$psk" "PSK" || return
     snell_write_conf "$port" "$psk" || die "配置写入失败"
     snell_write_init; ok "配置已写入"
 
@@ -978,9 +986,9 @@ at_install() {
     ask "端口" "$(gen_port)";    port="$REPLY"
     ask "密码" "$(gen_secret)";  pass="$REPLY"
     ask "SNI"  "$DEFAULT_SNI";   sni="$REPLY"
-    _chk_port "$port" || die "端口无效"
-    _chk_field "$pass" "密码" || die "密码无效"
-    _chk_field "$sni" "SNI" || die "SNI 无效"
+    _chk_port_free "$port" || return
+    _chk_field "$pass" "密码" || return
+    _chk_field "$sni" "SNI" || return
     at_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
     at_write_init; ok "配置已写入"
 
@@ -1078,8 +1086,8 @@ ss_install() {
     ask "端口" "$(gen_port)";     port="$REPLY"
     ask "密码(base64)" "$(gen_ss_pass)"; pass="$REPLY"
     [ "$pass" = "gen" ] && pass=$(gen_ss_pass)
-    _chk_port "$port" || die "端口无效"
-    _chk_field "$pass" "密码" || die "密码无效"
+    _chk_port_free "$port" || return
+    _chk_field "$pass" "密码" || return
     ss_write_conf "$port" "$pass" || die "配置写入失败"
     ss_write_init; ok "配置已写入"
 
@@ -1176,10 +1184,9 @@ hy_install() {
     ask "端口" "$(gen_port)";   port="$REPLY"
     ask "密码" "$(gen_secret)"; pass="$REPLY"
     ask "SNI"  "$DEFAULT_SNI";  sni="$REPLY"
-    _chk_port "$port" || die "端口无效"
-    _chk_field "$pass" "密码" || die "密码无效"
-    _chk_field "$sni" "SNI" || die "SNI 无效"
-    mkdir -p "$HY_DIR"
+    _chk_port_free "$port" || return
+    _chk_field "$pass" "密码" || return
+    _chk_field "$sni" "SNI" || return
     hy_gen_cert "$sni" || die "自签证书生成失败"
     chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
     hy_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
@@ -1286,10 +1293,9 @@ tj_install() {
     ask "端口" "$(gen_port)";   port="$REPLY"
     ask "密码" "$(gen_secret)"; pass="$REPLY"
     ask "SNI"  "$DEFAULT_SNI";  sni="$REPLY"
-    _chk_port "$port" || die "端口无效"
-    _chk_field "$pass" "密码" || die "密码无效"
-    _chk_field "$sni" "SNI" || die "SNI 无效"
-    mkdir -p "$TJ_DIR"
+    _chk_port_free "$port" || return
+    _chk_field "$pass" "密码" || return
+    _chk_field "$sni" "SNI" || return
     tj_gen_cert "$sni" || die "自签证书生成失败"
     chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
     tj_write_conf "$port" "$pass" "$sni" || die "配置写入失败"
@@ -1404,9 +1410,9 @@ s5_install() {
     ask "端口"   "$(gen_port)";   port="$REPLY"
     ask "用户名" "s5user";        user="$REPLY"
     ask "密码"   "$(gen_secret)"; pass="$REPLY"
-    _chk_port "$port" || die "端口无效"
-    _chk_field "$user" "用户名" || die "用户名无效"
-    _chk_field "$pass" "密码" || die "密码无效"
+    _chk_port_free "$port" || return
+    _chk_field "$user" "用户名" || return
+    _chk_field "$pass" "密码" || return
     # 创建系统登录用户供 dante 认证
     if ! id "$user" > /dev/null 2>&1; then
         adduser -D -s /sbin/nologin "$user" 2>/dev/null || die "创建认证用户失败"

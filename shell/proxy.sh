@@ -132,10 +132,15 @@ gen_secret() { tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24; }
 # SS 2022 密钥：16 字节随机数 → base64（2022-blake3-aes-128-gcm 要求）
 gen_ss_pass() { openssl rand -base64 16; }
 
-# 架构检测  $1=go → Go 命名(arm64)；否则 GNU 命名(aarch64)
+# 架构检测  $1=go→arm64  $1=trojan→armv8  否则 GNU 命名 aarch64
 _arch() {
     case "$(uname -m)" in
-        aarch64)      [ "$1" = "go" ] && echo "arm64" || echo "aarch64" ;;
+        aarch64)
+            case "$1" in
+                go)     echo "arm64"  ;;
+                trojan) echo "armv8"  ;;
+                *)      echo "aarch64";;
+            esac ;;
         x86_64|amd64) echo "amd64" ;;
     esac
 }
@@ -637,14 +642,14 @@ EOF
 _gen_cert() {
     local cn="$1" cert="$2" key="$3"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-        -keyout "$key" -out "$cert" -days 3650 -nodes \
+        -keyout "$key" -out "$cert" -days 3650 -noenc \
         -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
         || return 1
     chmod 600 "$key"
 }
 
-# 生成自签证书（10 年）→ HY_CERT / HY_KEY  失败返回 1（由调用方决定是否 die）
 hy_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$HY_CERT" "$HY_KEY"; }
+tj_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$TJ_CERT" "$TJ_KEY"; }
 
 hy_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
@@ -745,8 +750,6 @@ EOF
     chmod +x "$TJ_INIT"
 }
 
-tj_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$TJ_CERT" "$TJ_KEY"; }
-
 tj_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
     printf "\n"; _box "Trojan" "配置摘要"; hr
@@ -754,9 +757,7 @@ tj_show_summary() {
     hr; _node "$(tj_node "$@")"; hr; printf "\n"
 }
 
-# trojan-go 资产命名：aarch64→armv8  x86_64→amd64
-_tj_arch() { case "$(uname -m)" in aarch64) echo "armv8" ;; *) echo "amd64" ;; esac; }
-_tj_url()  { printf "https://github.com/p4gefau1t/trojan-go/releases/download/%s/trojan-go-linux-%s.zip" "$1" "$(_tj_arch)"; }
+_tj_url() { printf "https://github.com/p4gefau1t/trojan-go/releases/download/%s/trojan-go-linux-%s.zip" "$1" "$(_arch trojan)"; }
 
 tj_fetch_latest() {
     local json
@@ -773,6 +774,7 @@ tj_download() {
     local ver="${1:-$TJ_VERSION}" zip="/tmp/trojan-go-$$.zip"
     info "下载 Trojan-Go ${ver} ..."
     _fetch "$(_tj_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
+    [ -s "$zip" ] || { rm -f "$zip"; die "下载文件为空"; }
     [ -f "$TJ_BIN" ] && cp "$TJ_BIN" "$TJ_BIN_BAK"
     if ! unzip -oq "$zip" trojan-go -d /usr/local/bin 2>/dev/null; then
         rm -f "$zip"
@@ -801,20 +803,22 @@ s5_get_version() {
 s5_read_conf() {
     [ -f "$S5_CONF" ] || return 1
     CONF_PORT=$(grep '^internal:' "$S5_CONF" | grep -oE 'port=[0-9]+' | head -1 | sed 's/port=//')
-    CONF_USER=$(grep '^socksmethod:' "$S5_CONF" | grep -q 'username' && \
-        grep '^user\.privileged:' "$S5_CONF" | awk '{print $2}' | head -1 || echo "")
+    if grep -q 'socksmethod: username' "$S5_CONF"; then
+        CONF_USER=$(grep '^user\.notprivileged:' "$S5_CONF" | awk '{print $2}' | head -1)
+    else
+        CONF_USER=""
+    fi
     return 0
 }
 
-# $1=port $2=认证模式(none|user) $3=用户名(user模式) $4=密码(user模式)
+# $1=port $2=认证模式(none|user)
 s5_write_conf() {
-    mkdir -p /etc/dante 2>/dev/null || true
-    if [ "$2" = "user" ]; then
-        cat > "$S5_CONF" << EOF
+    local method="${2:-none}"
+    cat > "$S5_CONF" << EOF
 logoutput: /var/log/sockd.log
 internal: :: port=$1
 external: 0.0.0.0
-socksmethod: username
+socksmethod: ${method}
 user.privileged: root
 user.notprivileged: $S5_USER
 
@@ -825,31 +829,10 @@ client pass {
 
 socks pass {
     from: 0.0.0.0/0 to: 0.0.0.0/0
-    socksmethod: username
+    socksmethod: ${method}
     log: error
 }
 EOF
-    else
-        cat > "$S5_CONF" << EOF
-logoutput: /var/log/sockd.log
-internal: :: port=$1
-external: 0.0.0.0
-socksmethod: none
-user.privileged: root
-user.notprivileged: $S5_USER
-
-client pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    log: error
-}
-
-socks pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    socksmethod: none
-    log: error
-}
-EOF
-    fi
 }
 
 s5_write_info() {
@@ -880,7 +863,7 @@ s5_show_summary() {
 }
 
 ###############################################################################
-# §11  Snell 动作
+# §10  Snell 动作
 ###############################################################################
 
 snell_install() {
@@ -971,7 +954,7 @@ snell_uninstall() {
 }
 
 ###############################################################################
-# §12  AnyTLS 动作
+# §11  AnyTLS 动作
 ###############################################################################
 
 at_install() {
@@ -1066,7 +1049,7 @@ at_uninstall() {
 }
 
 ###############################################################################
-# §13  Shadowsocks 动作
+# §12  Shadowsocks 动作
 ###############################################################################
 
 ss_install() {
@@ -1160,7 +1143,7 @@ ss_uninstall() {
 }
 
 ###############################################################################
-# §14  Hysteria2 动作
+# §13  Hysteria2 动作
 ###############################################################################
 
 hy_install() {
@@ -1178,7 +1161,6 @@ hy_install() {
     step "创建系统用户"; _ensure_user "$HY_USER"
 
     step "生成自签证书"
-    mkdir -p "$HY_DIR"
     hy_gen_cert "$DEFAULT_SNI" || die "自签证书生成失败"
     chown "$HY_USER" "$HY_CERT" "$HY_KEY" 2>/dev/null || true
     ok "证书已生成（CN=${DEFAULT_SNI}）"
@@ -1268,7 +1250,7 @@ hy_uninstall() {
 }
 
 ###############################################################################
-# §15  Trojan 动作
+# §14  Trojan 动作
 ###############################################################################
 
 tj_install() {
@@ -1286,7 +1268,6 @@ tj_install() {
     step "创建系统用户"; _ensure_user "$TJ_USER"
 
     step "生成自签证书"
-    mkdir -p "$TJ_DIR"
     tj_gen_cert "$DEFAULT_SNI" || die "自签证书生成失败"
     chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
     ok "证书已生成（CN=${DEFAULT_SNI}）"
@@ -1376,7 +1357,7 @@ tj_uninstall() {
 }
 
 ###############################################################################
-# §16  SOCKS5 动作
+# §15  SOCKS5 动作
 ###############################################################################
 
 s5_install() {
@@ -1406,16 +1387,16 @@ s5_install() {
         # 创建系统登录用户供 dante 认证
         if ! id "$user" > /dev/null 2>&1; then
             adduser -D -s /sbin/nologin "$user" || die "创建认证用户失败"
-            printf '%s:%s' "$user" "$pass" | chpasswd 2>/dev/null || \
+            if ! printf '%s:%s\n' "$user" "$pass" | chpasswd 2>/dev/null; then
                 echo "$user:$pass" | chpasswd || die "设置密码失败"
+            fi
         fi
-        s5_write_conf "$port" "user" "$user" "$pass" || die "配置写入失败"
-        ok "配置已写入（用户名密码认证）"
+        s5_write_conf "$port" "username" || die "配置写入失败"
     else
         mode="none"; user=""; pass=""
         s5_write_conf "$port" "none" || die "配置写入失败"
-        ok "配置已写入（无认证）"
     fi
+    ok "配置已写入"
 
     step "启动服务"
     svc enable sockd; _restart_wait sockd "SOCKS5 已启动" "启动超时，请手动检查"
@@ -1478,9 +1459,7 @@ s5_uninstall() {
     confirm "确认卸载？" "n" || { ok "已取消"; return; }
     printf "\n"
     svc stop sockd; svc disable sockd
-    rm -f "$S5_INFO"
-    # dante-server apk 自带 init 和 conf，只清空配置不删文件
-    : > "$S5_CONF" 2>/dev/null || true
+    rm -f "$S5_INFO" "$S5_CONF"
     _del_user "$S5_USER"
     if confirm "是否同时卸载 dante-server apk 包？" "n"; then
         apk del -q dante-server 2>/dev/null || true
@@ -1490,7 +1469,7 @@ s5_uninstall() {
 }
 
 ###############################################################################
-# §17  菜单
+# §16  菜单
 ###############################################################################
 
 # 状态行  $1=已装(0/1) $2=运行(0/1) $3=版本
@@ -1656,7 +1635,7 @@ _run_submenu() {
 }
 
 ###############################################################################
-# §18  入口
+# §17  入口
 ###############################################################################
 
 trap 'printf "\n${R}  已中断${Z}\n"; exit 130' INT

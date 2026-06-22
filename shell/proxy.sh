@@ -633,14 +633,14 @@ EOF
 
 # 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  失败返回 1
 _gen_cert() {
-    local cn="$1" cert="$2" key="$3" extfile
-    extfile=$(mktemp /tmp/openssl-ext-XXXXXX.cnf)
+    local cn="$1" cert="$2" key="$3" extfile rc
+    extfile=$(mktemp /tmp/openssl-XXXXXX)
     printf '[san]\nsubjectAltName=DNS:%s\n' "$cn" > "$extfile"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
         -keyout "$key" -out "$cert" -days 3650 -nodes \
         -subj "/CN=${cn}" \
         -extensions san -extfile "$extfile" > /dev/null 2>&1
-    local rc=$?
+    rc=$?
     rm -f "$extfile"
     [ $rc -eq 0 ] || return 1
     chmod 600 "$key"
@@ -799,15 +799,16 @@ s5_read_conf() {
     CONF_PORT=$(grep '^internal:' "$S5_CONF" | grep -oE 'port=[0-9]+' | head -1 | sed 's/port=//')
     if grep -q 'socksmethod: username' "$S5_CONF"; then
         CONF_USER=$(grep '^user\.notprivileged:' "$S5_CONF" | awk '{print $2}' | head -1)
+        CONF_PASS=$(grep '^# pass:' "$S5_INFO" 2>/dev/null | sed 's/^# pass:[[:space:]]*//')
     else
-        CONF_USER=""
+        CONF_USER=""; CONF_PASS=""
     fi
     return 0
 }
 
-# $1=port $2=认证模式(none|username)
+# $1=port $2=认证模式(none|username) $3=用户名(username模式)
 s5_write_conf() {
-    local method="${2:-none}" iface
+    local method="${2:-none}" iface user="${3:-$S5_USER}"
     iface=$(ip route 2>/dev/null | awk '/^default/{print $5; exit}')
     [ -z "$iface" ] && iface=$(route -n 2>/dev/null | awk '$1=="0.0.0.0"{print $8; exit}')
     [ -z "$iface" ] && iface="eth0"
@@ -817,7 +818,7 @@ internal: 0.0.0.0 port=$1
 external: $iface
 socksmethod: ${method}
 user.privileged: root
-user.notprivileged: $S5_USER
+user.notprivileged: ${user}
 
 client pass {
     from: 0.0.0.0/0 to: 0.0.0.0/0
@@ -843,7 +844,7 @@ s5_node() {
 
 s5_write_info() {
     # $1=port $2=ip $3=country $4=mode $5=user(可空) $6=pass(可空)
-    { s5_node "$@"; echo; } > "$S5_INFO"
+    { s5_node "$@"; echo; [ -n "$6" ] && printf '# pass: %s\n' "$6"; } > "$S5_INFO"
 }
 
 s5_show_summary() {
@@ -1379,36 +1380,24 @@ s5_install() {
     step "创建系统用户"; _ensure_user "$S5_USER"
 
     step "生成配置"
-    local port mode user pass
-    port=$(gen_port)
-    printf "${Y}  认证模式${Z} [${B}1${Z}=无认证  ${B}2${Z}=用户名密码]: "
-    read -r mode
-    if [ "$mode" = "2" ]; then
-        mode="username"
-        ask "用户名"; user="$REPLY"
-        ask "密码";   pass="$REPLY"
-        _chk_field "$user" "用户名" || return
-        _chk_field "$pass" "密码"   || return
-        # 创建系统登录用户供 dante 认证
-        if ! id "$user" > /dev/null 2>&1; then
-            adduser -D -s /sbin/nologin "$user" || die "创建认证用户失败"
-            if ! printf '%s:%s\n' "$user" "$pass" | chpasswd 2>/dev/null; then
-                echo "$user:$pass" | chpasswd || die "设置密码失败"
-            fi
-        fi
-        s5_write_conf "$port" "username" || die "配置写入失败"
-    else
-        mode="none"; user=""; pass=""
-        s5_write_conf "$port" "none" || die "配置写入失败"
+    local port user pass
+    port=$(gen_port); user="s5user"; pass=$(gen_secret)
+    # 创建系统登录用户供 dante 认证
+    if ! id "$user" > /dev/null 2>&1; then
+        adduser -D -s /sbin/nologin "$user" 2>/dev/null || die "创建认证用户失败"
     fi
+    if ! printf '%s:%s\n' "$user" "$pass" | chpasswd 2>/dev/null; then
+        echo "$user:$pass" | chpasswd 2>/dev/null || die "设置密码失败"
+    fi
+    s5_write_conf "$port" "username" "$user" || die "配置写入失败"
     ok "配置已写入"
 
     step "启动服务"
     svc enable sockd; _restart_wait sockd "SOCKS5 已启动" "启动超时，请手动检查"
 
     fetch_public_ip
-    s5_write_info "$port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$user"
-    s5_show_summary "$port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$user" "$pass"
+    s5_write_info "$port" "$PUB_IP" "$PUB_COUNTRY" "username" "$user" "$pass"
+    s5_show_summary "$port" "$PUB_IP" "$PUB_COUNTRY" "username" "$user" "$pass"
 }
 
 s5_configure() {
@@ -1417,31 +1406,42 @@ s5_configure() {
     s5_read_conf
     _box "SOCKS5" "当前配置"; hr
     _kv "端口" "$CONF_PORT"
-    if [ -n "$CONF_USER" ]; then _kv "认证" "用户名密码（${CONF_USER}）"; else _kv "认证" "无"; fi
+    [ -n "$CONF_USER" ] && _kv "用户" "$CONF_USER"
+    [ -n "$CONF_PASS" ] && _kv "密码" "$CONF_PASS"
     hr; printf "\n"
-    confirm "修改端口？" "n" || return
+    confirm "修改配置？" "n" || return
     printf "\n${D}  回车保留当前值${Z}\n\n"
-    local new_port
+    local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    [ -n "$CONF_USER" ] && { ask "密码" "$CONF_PASS"; new_pass="$REPLY"; } || new_pass=""
     printf "\n"
     _chk_port "$new_port" || return
-    [ "$new_port" = "$CONF_PORT" ] && { info "配置未变更"; return; }
+    [ -n "$new_pass" ] && { _chk_field "$new_pass" "密码" || return; }
+    [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ] && { info "配置未变更"; return; }
 
     svc stop sockd
     _port_busy_guard "$new_port" "$CONF_PORT" sockd || return
-    # 仅更新端口，保留现有认证模式
     cp "$S5_CONF" "$S5_CONF_BAK" 2>/dev/null
+    # 更新端口
     sed -i "s/port=[0-9]*/port=${new_port}/g" "$S5_CONF" || {
         [ -f "$S5_CONF_BAK" ] && mv "$S5_CONF_BAK" "$S5_CONF"
         warn "配置写入失败，已恢复"; svc start sockd; return
     }
     rm -f "$S5_CONF_BAK"
+    # 更新密码（用户名不变）
+    if [ -n "$CONF_USER" ] && [ -n "$new_pass" ] && [ "$new_pass" != "$CONF_PASS" ]; then
+        if ! printf '%s:%s\n' "$CONF_USER" "$new_pass" | chpasswd 2>/dev/null; then
+            echo "$CONF_USER:$new_pass" | chpasswd 2>/dev/null || { warn "密码更新失败"; svc start sockd; return; }
+        fi
+    else
+        new_pass="$CONF_PASS"
+    fi
     _restart_wait sockd "新配置已生效"
-    local mode="none"
-    grep -q 'socksmethod: username' "$S5_CONF" && mode="username"
     fetch_public_ip
-    s5_write_info "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER"
-    s5_show_summary "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" ""
+    local mode="none"
+    [ -n "$CONF_USER" ] && mode="username"
+    s5_write_info "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" "$new_pass"
+    s5_show_summary "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" "$new_pass"
 }
 
 s5_update() {

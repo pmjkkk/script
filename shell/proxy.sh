@@ -729,7 +729,7 @@ tj_write_conf() {
     "local_addr": "::",
     "local_port": $1,
     "remote_addr": "127.0.0.1",
-    "remote_port": 80,
+    "remote_port": 8080,
     "password": ["$2"],
     "ssl": {
         "cert": "$TJ_CERT",
@@ -756,6 +756,11 @@ command="/usr/local/bin/trojan-go"
 command_args="-config /etc/trojan-go/config.json"
 command_user="trojan"
 supervisor="supervise-daemon"
+
+start_pre() {
+    # trojan-go 需要回落 HTTP 服务在 127.0.0.1:8080
+    busybox httpd -p 127.0.0.1:8080 -h /tmp 2>/dev/null || true
+}
 EOF
     chmod +x "$TJ_INIT"
 }

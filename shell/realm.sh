@@ -547,8 +547,8 @@ manage_service() {
             echo -e "  ${R}○ 已停止${N}"
         fi
         is_service_enabled \
-            && echo -e "  ${Y}⚙ 自启已启用${N}\n" \
-            || echo -e "  ${D}⚙ 自启未启用${N}\n"
+            && echo -e "  ${G}● 自启已启用${N}\n" \
+            || echo -e "  ${D}○ 自启未启用${N}\n"
 
         line
         echo -e "   ${C}[1]${N}  启动"
@@ -632,8 +632,8 @@ check_status() {
         printf "  ${R}○ 已停止${N}\n"
     fi
     is_service_enabled \
-        && printf "  ${Y}⚙ 自启已启用${N}\n" \
-        || printf "  ${D}⚙ 自启未启用${N}\n"
+        && printf "  ${G}● 自启已启用${N}\n" \
+        || printf "  ${D}○ 自启未启用${N}\n"
 
     # 转发规则
     echo ''

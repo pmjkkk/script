@@ -2,7 +2,7 @@
 # shellcheck disable=SC2059  # ANSI 颜色变量出现在 printf 格式串中，属故意为之
 #=============================================================================
 # proxy.sh  ·  多协议代理管理工具  ·  Alpine Linux 专用
-#   Snell · AnyTLS · Shadowsocks · Hysteria2
+#   Snell · Shadowsocks · Hysteria2 · Trojan · SOCKS5 · AnyTLS
 #=============================================================================
 
 # ── 公共 ──────────────────────────────────────────────────────────────────
@@ -51,6 +51,28 @@ readonly HY_INIT="/etc/init.d/hysteria"
 readonly HY_USER="hysteria"
 readonly HY_API="https://api.github.com/repos/apernet/hysteria/releases"
 HY_VERSION="v2.9.2"
+
+# ── Trojan (trojan-go) ───────────────────────────────────────────────────────
+readonly TJ_BIN="/usr/local/bin/trojan-go"
+readonly TJ_BIN_BAK="${TJ_BIN}.bak"
+readonly TJ_DIR="/etc/trojan-go"
+readonly TJ_CONF="${TJ_DIR}/config.json"
+readonly TJ_CONF_BAK="${TJ_CONF}.bak"
+readonly TJ_CERT="${TJ_DIR}/server.crt"
+readonly TJ_KEY="${TJ_DIR}/server.key"
+readonly TJ_INFO="${TJ_DIR}/config.txt"
+readonly TJ_INIT="/etc/init.d/trojan-go"
+readonly TJ_USER="trojan"
+readonly TJ_API="https://api.github.com/repos/p4gefau1t/trojan-go/releases"
+TJ_VERSION="v0.10.6"
+
+# ── SOCKS5 (dante-server，apk) ───────────────────────────────────────────────
+readonly S5_BIN="/usr/sbin/sockd"
+readonly S5_CONF="/etc/sockd.conf"
+readonly S5_CONF_BAK="${S5_CONF}.bak"
+readonly S5_INFO="/etc/sockd.info"
+readonly S5_INIT="/etc/init.d/sockd"
+readonly S5_USER="sockd"
 
 # ── ANSI ────────────────────────────────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' Y='\033[0;33m' C='\033[0;36m'
@@ -611,15 +633,18 @@ EOF
     chmod +x "$HY_INIT"
 }
 
-# 生成自签证书（10 年）→ HY_CERT / HY_KEY  $1=CN  失败返回 1（由调用方决定是否 die）
-hy_gen_cert() {
-    local cn="${1:-$DEFAULT_SNI}"
+# 生成自签 ECC 证书（10 年）$1=CN  $2=cert路径  $3=key路径  失败返回 1
+_gen_cert() {
+    local cn="$1" cert="$2" key="$3"
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-        -keyout "$HY_KEY" -out "$HY_CERT" -days 3650 -nodes \
+        -keyout "$key" -out "$cert" -days 3650 -nodes \
         -subj "/CN=${cn}" -addext "subjectAltName=DNS:${cn}" > /dev/null 2>&1 \
         || return 1
-    chmod 600 "$HY_KEY"
+    chmod 600 "$key"
 }
+
+# 生成自签证书（10 年）→ HY_CERT / HY_KEY  失败返回 1（由调用方决定是否 die）
+hy_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$HY_CERT" "$HY_KEY"; }
 
 hy_show_summary() {
     # $1=port $2=pass $3=ip $4=country $5=sni
@@ -658,7 +683,204 @@ hy_download() {
 }
 
 ###############################################################################
-# §8  Snell 动作
+# §8  Trojan (trojan-go)
+###############################################################################
+
+tj_is_installed() { [ -f "$TJ_BIN" ]; }
+tj_is_running()   { [ -f "$TJ_INIT" ] && rc-service trojan-go status > /dev/null 2>&1; }
+
+tj_get_version() {
+    tj_is_installed || { echo "未安装"; return; }
+    local v
+    v=$("$TJ_BIN" -version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$v" ] && echo "$v" || echo "未知"
+}
+
+tj_read_conf() {
+    [ -f "$TJ_CONF" ] || return 1
+    CONF_PORT=$(grep '"local_port"' "$TJ_CONF" | grep -oE '[0-9]+')
+    CONF_PASS=$(grep -A1 '"password"' "$TJ_CONF" | grep '"' | sed 's/.*"\(.*\)".*/\1/')
+    CONF_SNI=$(grep '"sni"' "$TJ_CONF" | sed 's/.*"sni":[[:space:]]*"//; s/".*//')
+    [ -z "$CONF_SNI" ] && CONF_SNI="$DEFAULT_SNI"
+    return 0
+}
+
+tj_write_conf() {
+    # $1=port $2=password $3=sni
+    mkdir -p "$TJ_DIR" || return 1
+    cat > "$TJ_CONF" << EOF
+{
+    "run_type": "server",
+    "local_addr": "::",
+    "local_port": $1,
+    "remote_addr": "127.0.0.1",
+    "remote_port": 80,
+    "password": ["$2"],
+    "ssl": {
+        "cert": "$TJ_CERT",
+        "key": "$TJ_KEY",
+        "sni": "$3"
+    }
+}
+EOF
+}
+
+# 节点字符串  $1=port $2=pass $3=ip $4=country $5=sni
+tj_node() {
+    printf '%s = trojan, %s, %s, password=%s, sni=%s, skip-cert-verify=true' \
+        "$4" "$3" "$1" "$2" "$5"
+}
+tj_write_info() { { tj_node "$@"; echo; } > "$TJ_INFO"; }
+
+tj_write_init() {
+    cat > "$TJ_INIT" << 'EOF'
+#!/sbin/openrc-run
+name="trojan-go"
+description="Trojan-Go Proxy Server"
+command="/usr/local/bin/trojan-go"
+command_args="-config /etc/trojan-go/config.json"
+command_user="trojan"
+supervisor="supervise-daemon"
+EOF
+    chmod +x "$TJ_INIT"
+}
+
+tj_gen_cert() { _gen_cert "${1:-$DEFAULT_SNI}" "$TJ_CERT" "$TJ_KEY"; }
+
+tj_show_summary() {
+    # $1=port $2=pass $3=ip $4=country $5=sni
+    printf "\n"; _box "Trojan" "配置摘要"; hr
+    _kv "地区" "$4"; _kv "IP  " "$3"; _kv "端口" "$1"; _kv "密码" "$2"; _kv "SNI " "$5"
+    hr; _node "$(tj_node "$@")"; hr; printf "\n"
+}
+
+# trojan-go 资产命名：aarch64→armv8  x86_64→amd64
+_tj_arch() { case "$(uname -m)" in aarch64) echo "armv8" ;; *) echo "amd64" ;; esac; }
+_tj_url()  { printf "https://github.com/p4gefau1t/trojan-go/releases/download/%s/trojan-go-linux-%s.zip" "$1" "$(_tj_arch)"; }
+
+tj_fetch_latest() {
+    local json
+    json=$(curl -sf --connect-timeout 5 --max-time 10 "${TJ_API}/latest")
+    if [ -z "$json" ]; then
+        warn "无法访问 GitHub API，回退到内置版本 ${TJ_VERSION}"
+        TJ_LATEST_VER="$TJ_VERSION"; return
+    fi
+    TJ_LATEST_VER=$(echo "$json" | grep '"tag_name"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+    [ -z "$TJ_LATEST_VER" ] && { warn "无法解析最新版本"; TJ_LATEST_VER="$TJ_VERSION"; }
+}
+
+tj_download() {
+    local ver="${1:-$TJ_VERSION}" zip="/tmp/trojan-go-$$.zip"
+    info "下载 Trojan-Go ${ver} ..."
+    _fetch "$(_tj_url "$ver")" "$zip" || { rm -f "$zip"; die "下载失败，请检查网络"; }
+    [ -f "$TJ_BIN" ] && cp "$TJ_BIN" "$TJ_BIN_BAK"
+    if ! unzip -oq "$zip" trojan-go -d /usr/local/bin 2>/dev/null; then
+        rm -f "$zip"
+        [ -f "$TJ_BIN_BAK" ] && mv "$TJ_BIN_BAK" "$TJ_BIN"
+        die "解压 Trojan-Go 失败"
+    fi
+    rm -f "$zip" "$TJ_BIN_BAK"
+    chmod +x "$TJ_BIN"
+    ok "Trojan-Go ${ver} 部署完成"
+}
+
+###############################################################################
+# §9  SOCKS5 (dante-server)
+###############################################################################
+
+s5_is_installed() { [ -f "$S5_BIN" ] && [ -f "$S5_CONF" ]; }
+s5_is_running()   { [ -f "$S5_INIT" ] && rc-service sockd status > /dev/null 2>&1; }
+
+s5_get_version() {
+    s5_is_installed || { echo "未安装"; return; }
+    local v
+    v=$("$S5_BIN" -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$v" ] && echo "v${v}" || echo "未知"
+}
+
+s5_read_conf() {
+    [ -f "$S5_CONF" ] || return 1
+    CONF_PORT=$(grep '^internal:' "$S5_CONF" | grep -oE 'port=[0-9]+' | head -1 | sed 's/port=//')
+    CONF_USER=$(grep '^socksmethod:' "$S5_CONF" | grep -q 'username' && \
+        grep '^user\.privileged:' "$S5_CONF" | awk '{print $2}' | head -1 || echo "")
+    return 0
+}
+
+# $1=port $2=认证模式(none|user) $3=用户名(user模式) $4=密码(user模式)
+s5_write_conf() {
+    mkdir -p /etc/dante 2>/dev/null || true
+    if [ "$2" = "user" ]; then
+        cat > "$S5_CONF" << EOF
+logoutput: /var/log/sockd.log
+internal: :: port=$1
+external: 0.0.0.0
+socksmethod: username
+user.privileged: root
+user.notprivileged: $S5_USER
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: error
+}
+
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    socksmethod: username
+    log: error
+}
+EOF
+    else
+        cat > "$S5_CONF" << EOF
+logoutput: /var/log/sockd.log
+internal: :: port=$1
+external: 0.0.0.0
+socksmethod: none
+user.privileged: root
+user.notprivileged: $S5_USER
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: error
+}
+
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    socksmethod: none
+    log: error
+}
+EOF
+    fi
+}
+
+s5_write_info() {
+    # $1=port $2=ip $3=country $4=mode $5=user(可空)
+    if [ "$4" = "user" ]; then
+        printf '%s  socks5://%s:%s@%s:%s\n' "$3" "$5" "(密码见安装时输出)" "$2" "$1" > "$S5_INFO"
+    else
+        printf '%s  socks5://%s:%s\n' "$3" "$2" "$1" > "$S5_INFO"
+    fi
+}
+
+s5_show_summary() {
+    # $1=port $2=ip $3=country $4=mode $5=user(可空) $6=pass(可空)
+    printf "\n"; _box "SOCKS5" "配置摘要"; hr
+    _kv "地区" "$3"; _kv "IP  " "$2"; _kv "端口" "$1"
+    if [ "$4" = "user" ]; then
+        _kv "认证" "用户名密码"; _kv "用户" "$5"; _kv "密码" "$6"
+        hr
+        printf "  ${D}节点:${Z}\n"
+        printf "  ${C}socks5://%s:%s@%s:%s${Z}\n" "$5" "$6" "$2" "$1"
+    else
+        _kv "认证" "无（开放）"
+        hr
+        printf "  ${D}节点:${Z}\n"
+        printf "  ${C}socks5://%s:%s${Z}\n" "$2" "$1"
+    fi
+    hr; printf "\n"
+}
+
+###############################################################################
+# §11  Snell 动作
 ###############################################################################
 
 snell_install() {
@@ -749,7 +971,7 @@ snell_uninstall() {
 }
 
 ###############################################################################
-# §9  AnyTLS 动作
+# §12  AnyTLS 动作
 ###############################################################################
 
 at_install() {
@@ -844,7 +1066,7 @@ at_uninstall() {
 }
 
 ###############################################################################
-# §10  Shadowsocks 动作
+# §13  Shadowsocks 动作
 ###############################################################################
 
 ss_install() {
@@ -938,7 +1160,7 @@ ss_uninstall() {
 }
 
 ###############################################################################
-# §11  Hysteria2 动作
+# §14  Hysteria2 动作
 ###############################################################################
 
 hy_install() {
@@ -1046,7 +1268,229 @@ hy_uninstall() {
 }
 
 ###############################################################################
-# §12  菜单
+# §15  Trojan 动作
+###############################################################################
+
+tj_install() {
+    printf "\n"
+    if tj_is_installed; then
+        warn "Trojan 已安装（$(tj_get_version)），继续将覆盖现有配置"
+        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        printf "\n"
+    fi
+    steps_init 6
+    _box "安装 Trojan" "${TJ_VERSION}"; hr
+
+    step "检查并安装依赖"; ensure_pkgs curl openssl unzip
+    step "下载并部署二进制"; tj_download "$TJ_VERSION"
+    step "创建系统用户"; _ensure_user "$TJ_USER"
+
+    step "生成自签证书"
+    mkdir -p "$TJ_DIR"
+    tj_gen_cert "$DEFAULT_SNI" || die "自签证书生成失败"
+    chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
+    ok "证书已生成（CN=${DEFAULT_SNI}）"
+
+    step "生成配置"
+    local port pass
+    port=$(gen_port); pass=$(gen_secret)
+    tj_write_conf "$port" "$pass" "$DEFAULT_SNI" || die "配置写入失败"
+    tj_write_init; ok "配置已写入"
+
+    step "启动服务"
+    svc enable trojan-go; _restart_wait trojan-go "Trojan 已启动" "启动超时，请手动检查"
+
+    fetch_public_ip
+    tj_write_info "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+    tj_show_summary "$port" "$pass" "$PUB_IP" "$PUB_COUNTRY" "$DEFAULT_SNI"
+}
+
+tj_configure() {
+    printf "\n"
+    [ -f "$TJ_CONF" ] || { warn "未找到配置文件，请先安装 Trojan"; return; }
+    tj_read_conf
+    _box "Trojan" "当前配置"; hr
+    _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
+    hr; printf "\n"
+    confirm "修改配置？" "n" || return
+    printf "\n${D}  回车保留当前值${Z}\n\n"
+    local new_port new_pass new_sni
+    ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    ask "密码" "$CONF_PASS"; new_pass="$REPLY"
+    ask "SNI"  "$CONF_SNI";  new_sni="$REPLY"
+    printf "\n"
+    _chk_port "$new_port" || return
+    _chk_field "$new_pass" "密码" || return
+    _chk_field "$new_sni" "SNI" || return
+    if [ "$new_port" = "$CONF_PORT" ] && [ "$new_pass" = "$CONF_PASS" ] && [ "$new_sni" = "$CONF_SNI" ]; then
+        info "配置未变更"; return
+    fi
+
+    svc stop trojan-go
+    _port_busy_guard "$new_port" "$CONF_PORT" trojan-go || return
+    cp "$TJ_CONF" "$TJ_CONF_BAK" 2>/dev/null
+    if ! tj_write_conf "$new_port" "$new_pass" "$new_sni"; then
+        [ -f "$TJ_CONF_BAK" ] && mv "$TJ_CONF_BAK" "$TJ_CONF"
+        warn "配置写入失败，已恢复"; svc start trojan-go; return
+    fi
+    if [ "$new_sni" != "$CONF_SNI" ]; then
+        tj_gen_cert "$new_sni" || {
+            [ -f "$TJ_CONF_BAK" ] && mv "$TJ_CONF_BAK" "$TJ_CONF"
+            warn "证书生成失败，已回滚配置"; svc start trojan-go; return
+        }
+        chown "$TJ_USER" "$TJ_CERT" "$TJ_KEY" 2>/dev/null || true
+    fi
+    rm -f "$TJ_CONF_BAK"
+    _restart_wait trojan-go "新配置已生效"
+    fetch_public_ip
+    tj_write_info "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
+    tj_show_summary "$new_port" "$new_pass" "$PUB_IP" "$PUB_COUNTRY" "$new_sni"
+}
+
+tj_update() {
+    printf "\n"
+    tj_is_installed || { warn "Trojan 未安装"; return; }
+    steps_init 4
+    _box "更新 Trojan"; hr
+    step "查询最新版本"
+    local old_ver
+    old_ver=$(tj_get_version)
+    info "当前版本: ${old_ver}，查询中..."
+    tj_fetch_latest
+    if [ "$old_ver" = "$TJ_LATEST_VER" ]; then
+        printf "\n"; warn "已是最新版本 (${old_ver})"
+        confirm "仍要重新安装？" "n" || { ok "已取消"; return; }
+        printf "\n"
+    else
+        ok "发现新版本: ${D}${old_ver}${Z} → ${G}${TJ_LATEST_VER}${Z}"; printf "\n"
+    fi
+    step "停止服务"; svc stop trojan-go; ok "已停止"
+    step "下载并部署"; ensure_pkgs curl openssl unzip; tj_download "$TJ_LATEST_VER"; TJ_VERSION="$TJ_LATEST_VER"
+    step "启动服务"; _restart_wait trojan-go "Trojan 已启动（$(tj_get_version)）" "启动超时"
+    tj_read_conf
+    [ -n "$CONF_PORT" ] && { fetch_public_ip; tj_write_info "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; tj_show_summary "$CONF_PORT" "$CONF_PASS" "$PUB_IP" "$PUB_COUNTRY" "$CONF_SNI"; }
+}
+
+tj_uninstall() {
+    _uninstall_common "Trojan" trojan-go "$TJ_INIT" "$TJ_DIR" "$TJ_USER" "$TJ_BIN" "$TJ_BIN_BAK"
+}
+
+###############################################################################
+# §16  SOCKS5 动作
+###############################################################################
+
+s5_install() {
+    printf "\n"
+    if s5_is_installed; then
+        warn "SOCKS5 已安装（$(s5_get_version)），继续将覆盖现有配置"
+        confirm "确认继续？" "n" || { ok "已取消"; return; }
+        printf "\n"
+    fi
+    steps_init 4
+    _box "安装 SOCKS5" "dante-server"; hr
+
+    step "检查并安装依赖"; ensure_pkgs dante-server
+    [ -f "$S5_BIN" ] || die "sockd 未找到，apk 安装可能失败"
+    step "创建系统用户"; _ensure_user "$S5_USER"
+
+    step "生成配置"
+    local port mode user pass
+    port=$(gen_port)
+    printf "${Y}  认证模式${Z} [${B}1${Z}=无认证  ${B}2${Z}=用户名密码]: "
+    read -r mode
+    if [ "$mode" = "2" ]; then
+        ask "用户名"; user="$REPLY"
+        ask "密码";   pass="$REPLY"
+        _chk_field "$user" "用户名" || return
+        _chk_field "$pass" "密码"   || return
+        # 创建系统登录用户供 dante 认证
+        if ! id "$user" > /dev/null 2>&1; then
+            adduser -D -s /sbin/nologin "$user" || die "创建认证用户失败"
+            printf '%s:%s' "$user" "$pass" | chpasswd 2>/dev/null || \
+                echo "$user:$pass" | chpasswd || die "设置密码失败"
+        fi
+        s5_write_conf "$port" "user" "$user" "$pass" || die "配置写入失败"
+        ok "配置已写入（用户名密码认证）"
+    else
+        mode="none"; user=""; pass=""
+        s5_write_conf "$port" "none" || die "配置写入失败"
+        ok "配置已写入（无认证）"
+    fi
+
+    step "启动服务"
+    svc enable sockd; _restart_wait sockd "SOCKS5 已启动" "启动超时，请手动检查"
+
+    fetch_public_ip
+    s5_write_info "$port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$user"
+    s5_show_summary "$port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$user" "$pass"
+}
+
+s5_configure() {
+    printf "\n"
+    [ -f "$S5_CONF" ] || { warn "未找到配置文件，请先安装 SOCKS5"; return; }
+    s5_read_conf
+    _box "SOCKS5" "当前配置"; hr
+    _kv "端口" "$CONF_PORT"
+    if [ -n "$CONF_USER" ]; then _kv "认证" "用户名密码（${CONF_USER}）"; else _kv "认证" "无"; fi
+    hr; printf "\n"
+    confirm "修改端口？" "n" || return
+    printf "\n${D}  回车保留当前值${Z}\n\n"
+    local new_port
+    ask "端口" "$CONF_PORT"; new_port="$REPLY"
+    printf "\n"
+    _chk_port "$new_port" || return
+    [ "$new_port" = "$CONF_PORT" ] && { info "配置未变更"; return; }
+
+    svc stop sockd
+    _port_busy_guard "$new_port" "$CONF_PORT" sockd || return
+    # 仅更新端口，保留现有认证模式
+    cp "$S5_CONF" "$S5_CONF_BAK" 2>/dev/null
+    sed -i "s/port=[0-9]*/port=${new_port}/g" "$S5_CONF" || {
+        [ -f "$S5_CONF_BAK" ] && mv "$S5_CONF_BAK" "$S5_CONF"
+        warn "配置写入失败，已恢复"; svc start sockd; return
+    }
+    rm -f "$S5_CONF_BAK"
+    _restart_wait sockd "新配置已生效"
+    local mode="none"
+    grep -q 'socksmethod: username' "$S5_CONF" && mode="user"
+    fetch_public_ip
+    s5_write_info "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER"
+    s5_show_summary "$new_port" "$PUB_IP" "$PUB_COUNTRY" "$mode" "$CONF_USER" ""
+}
+
+s5_update() {
+    printf "\n"
+    s5_is_installed || { warn "SOCKS5 未安装"; return; }
+    steps_init 2
+    _box "更新 SOCKS5"; hr
+    step "更新二进制"
+    info "当前版本: $(s5_get_version)，通过 apk 升级..."
+    svc stop sockd
+    apk update -q 2>/dev/null
+    apk upgrade -q dante-server 2>/dev/null || true
+    step "启动服务"; _restart_wait sockd "SOCKS5 已更新至 $(s5_get_version)" "启动超时"
+}
+
+s5_uninstall() {
+    printf "\n"
+    _box "卸载 SOCKS5"; hr; printf "\n"
+    warn "将停止服务、删除配置及系统用户（保留 apk 包），操作不可恢复"; printf "\n"
+    confirm "确认卸载？" "n" || { ok "已取消"; return; }
+    printf "\n"
+    svc stop sockd; svc disable sockd
+    rm -f "$S5_INFO"
+    # dante-server apk 自带 init 和 conf，只清空配置不删文件
+    : > "$S5_CONF" 2>/dev/null || true
+    _del_user "$S5_USER"
+    if confirm "是否同时卸载 dante-server apk 包？" "n"; then
+        apk del -q dante-server 2>/dev/null || true
+        ok "apk 包已卸载"
+    fi
+    printf "\n"; ok "SOCKS5 已卸载"; printf "\n"
+}
+
+###############################################################################
+# §17  菜单
 ###############################################################################
 
 # 状态行  $1=已装(0/1) $2=运行(0/1) $3=版本
@@ -1083,31 +1527,37 @@ _svc_menu_items() {
 
 show_main_menu() {
     clear
-    local si=0 sr=0 ai=0 ar=0 ssi=0 ssr=0 hi=0 hyr=0
-    snell_is_installed && si=1;  snell_is_running && sr=1
-    at_is_installed    && ai=1;  at_is_running    && ar=1
-    ss_is_installed    && ssi=1; ss_is_running    && ssr=1
-    hy_is_installed    && hi=1;  hy_is_running     && hyr=1
-    _box "代理服务管理" "Snell · SS · Hysteria2 · AnyTLS"
+    local si=0 sr=0 ai=0 ar=0 ssi=0 ssr=0 hi=0 hyr=0 ti=0 tr=0 s5i=0 s5r=0
+    snell_is_installed && si=1;   snell_is_running && sr=1
+    ss_is_installed    && ssi=1;  ss_is_running    && ssr=1
+    hy_is_installed    && hi=1;   hy_is_running    && hyr=1
+    tj_is_installed    && ti=1;   tj_is_running    && tr=1
+    s5_is_installed    && s5i=1;  s5_is_running    && s5r=1
+    at_is_installed    && ai=1;   at_is_running    && ar=1
+    _box "代理服务管理" "Snell · SS · Hysteria2 · Trojan · SOCKS5 · AnyTLS"
     printf "    ${D}Alpine Linux 专用${Z}\n"
     hr
-    printf "    ${W}Snell      ${Z}  %b\n" "$(_status_line $si $sr "$(snell_get_version)")"
+    printf "    ${W}Snell      ${Z}  %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
     printf "    ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
-    printf "    ${W}Hysteria2  ${Z}  %b\n" "$(_status_line $hi $hyr "$(hy_get_version)")"
-    printf "    ${W}AnyTLS     ${Z}  %b\n" "$(_status_line $ai $ar "$(at_get_version)")"
+    printf "    ${W}Hysteria2  ${Z}  %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
+    printf "    ${W}Trojan     ${Z}  %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
+    printf "    ${W}SOCKS5     ${Z}  %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
+    printf "    ${W}AnyTLS     ${Z}  %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
     hr
     printf "\n"
     printf "   ${C}1${Z}  管理 Snell\n"
     printf "   ${C}2${Z}  管理 Shadowsocks\n"
     printf "   ${C}3${Z}  管理 Hysteria2\n"
-    printf "   ${C}4${Z}  管理 AnyTLS\n"
+    printf "   ${C}4${Z}  管理 Trojan\n"
+    printf "   ${C}5${Z}  管理 SOCKS5\n"
+    printf "   ${C}6${Z}  管理 AnyTLS\n"
     printf "   ${D}0  退出${Z}\n\n"
     hr
-    printf "   请选择 ${D}[0-4]${Z} ${W}❯${Z} "
+    printf "   请选择 ${D}[0-6]${Z} ${W}❯${Z} "
     read -r CHOICE
 }
 
-# 服务子菜单  $1=snell|at|ss|hy
+# 服务子菜单  $1=snell|ss|hy|tj|s5|at
 show_svc_menu() {
     clear
     local p="$1" inst=0 run=0 ver extra="" ip
@@ -1122,16 +1572,6 @@ show_svc_menu() {
                 [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
             fi
             _box "Snell Server" "管理" ;;
-        at)
-            at_is_installed && inst=1; at_is_running && run=1
-            ver=$(at_get_version)
-            if [ $inst -eq 1 ]; then
-                at_read_conf 2>/dev/null
-                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
-            fi
-            _box "AnyTLS Server" "管理" ;;
         ss)
             ss_is_installed && inst=1; ss_is_running && run=1
             ver=$(ss_get_version)
@@ -1152,6 +1592,36 @@ show_svc_menu() {
                 [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
             fi
             _box "Hysteria2 Server" "管理" ;;
+        tj)
+            tj_is_installed && inst=1; tj_is_running && run=1
+            ver=$(tj_get_version)
+            if [ $inst -eq 1 ]; then
+                tj_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$TJ_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "Trojan Server" "管理" ;;
+        s5)
+            s5_is_installed && inst=1; s5_is_running && run=1
+            ver=$(s5_get_version)
+            if [ $inst -eq 1 ]; then
+                s5_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$S5_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "SOCKS5 Server" "管理" ;;
+        at)
+            at_is_installed && inst=1; at_is_running && run=1
+            ver=$(at_get_version)
+            if [ $inst -eq 1 ]; then
+                at_read_conf 2>/dev/null
+                ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
+                [ -n "$CONF_PORT" ] && extra="端口  ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
+                [ -n "$ip" ]        && extra="${extra}   IP  ${C}${ip}${Z}"
+            fi
+            _box "AnyTLS Server" "管理" ;;
     esac
     hr
     printf "    状态  %b\n" "$(_status_line $inst $run "$ver")"
@@ -1160,7 +1630,7 @@ show_svc_menu() {
     read -r CHOICE
 }
 
-# 子菜单循环  $1=snell|at|ss|hy
+# 子菜单循环  $1=snell|ss|hy|tj|s5|at
 _run_submenu() {
     local p="$1"
     while true; do
@@ -1168,12 +1638,16 @@ _run_submenu() {
         case "${p}_${CHOICE}" in
             snell_1) snell_install   ;; snell_2) snell_configure ;;
             snell_3) snell_update    ;; snell_4) snell_uninstall ;;
-            at_1)    at_install      ;; at_2)    at_configure    ;;
-            at_3)    at_update       ;; at_4)    at_uninstall    ;;
             ss_1)    ss_install      ;; ss_2)    ss_configure    ;;
             ss_3)    ss_update       ;; ss_4)    ss_uninstall    ;;
             hy_1)    hy_install      ;; hy_2)    hy_configure    ;;
             hy_3)    hy_update       ;; hy_4)    hy_uninstall    ;;
+            tj_1)    tj_install      ;; tj_2)    tj_configure    ;;
+            tj_3)    tj_update       ;; tj_4)    tj_uninstall    ;;
+            s5_1)    s5_install      ;; s5_2)    s5_configure    ;;
+            s5_3)    s5_update       ;; s5_4)    s5_uninstall    ;;
+            at_1)    at_install      ;; at_2)    at_configure    ;;
+            at_3)    at_update       ;; at_4)    at_uninstall    ;;
             *_0)     return ;;
             *) warn "无效选项：${CHOICE}" ;;
         esac
@@ -1182,7 +1656,7 @@ _run_submenu() {
 }
 
 ###############################################################################
-# §13  入口
+# §18  入口
 ###############################################################################
 
 trap 'printf "\n${R}  已中断${Z}\n"; exit 130' INT
@@ -1197,7 +1671,9 @@ main() {
             1) _run_submenu snell ;;
             2) _run_submenu ss    ;;
             3) _run_submenu hy    ;;
-            4) _run_submenu at    ;;
+            4) _run_submenu tj    ;;
+            5) _run_submenu s5    ;;
+            6) _run_submenu at    ;;
             0) ok "再见"; printf "\n"; exit 0 ;;
             *) warn "无效选项：${CHOICE}" ;;
         esac

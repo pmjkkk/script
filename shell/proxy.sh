@@ -78,25 +78,25 @@ readonly S5_INIT="/etc/init.d/sockd"
 readonly S5_USER="sockd"
 
 # ── ANSI ────────────────────────────────────────────────────────────────────
-R='\033[0;31m' G='\033[0;32m' Y='\033[0;33m' C='\033[0;36m'
-B='\033[1m'    D='\033[2m'    W='\033[1;37m' Z='\033[0m'
+R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m'
+B='\033[1m'    D='\033[2m'    W='\033[1;37m' N='\033[0m'
 
 ###############################################################################
 # §1  输出 & 交互
 ###############################################################################
 # 诊断信息统一走 stderr，避免污染 $(func) 命令替换的返回值
-die()  { printf "\n${R}✗ %s${Z}\n" "$*" >&2; exit 1; }
-warn() { printf "${Y}⚠ %s${Z}\n" "$*" >&2; }
-info() { printf "${C}! %s${Z}\n" "$*" >&2; }
-ok()   { printf "${G}✓ %s${Z}\n" "$*"; }
-hr()   { printf "${D}  ──────────────────────────────────────────────${Z}\n"; }
+die()  { printf "\n  ${R}✗ %s${N}\n" "$*" >&2; exit 1; }
+warn() { printf "  ${Y}⚠ %s${N}\n" "$*" >&2; }
+info() { printf "  ${C}! %s${N}\n" "$*" >&2; }
+ok()   { printf "  ${G}✓ %s${N}\n" "$*"; }
+hr()   { printf "${D}  ──────────────────────────────────────────────${N}\n"; }
 
 # confirm  $1=提示  $2=默认 yes|no（默认 no）—— 仅接受完整 yes/no
 confirm() {
     local msg="$1" def="${2:-no}" ans hint
-    [ "$def" = "yes" ] && hint="${B}yes${Z}/no" || hint="yes/${B}no${Z}"
+    [ "$def" = "yes" ] && hint="${B}yes${N}/no" || hint="yes/${B}no${N}"
     while true; do
-        printf "${Y}  %s${Z} [%b]: " "$msg" "$hint"
+        printf "${Y}  %s${N} [%b]: " "$msg" "$hint"
         read -r ans
         [ -z "$ans" ] && ans="$def"
         case "$ans" in
@@ -111,9 +111,9 @@ confirm() {
 ask() {
     local msg="$1" def="$2"
     if [ -n "$def" ]; then
-        printf "${C}  %s${Z}  ${D}[%s]${Z}: " "$msg" "$def"
+        printf "${C}  %s${N}  ${D}[%s]${N}: " "$msg" "$def"
     else
-        printf "${C}  %s${Z}: " "$msg"
+        printf "${C}  %s${N}: " "$msg"
     fi
     read -r REPLY
     [ -z "$REPLY" ] && REPLY="$def"
@@ -121,7 +121,7 @@ ask() {
 
 _st=0; _st_n=0
 steps_init() { _st_n="$1"; _st=0; }
-step() { _st=$((_st+1)); printf "${C}[%d/%d]${Z} %s\n" "$_st" "$_st_n" "$1"; }
+step() { _st=$((_st+1)); printf "  ${C}[%d/%d]${N} %s\n" "$_st" "$_st_n" "$1"; }
 
 ###############################################################################
 # §2  通用工具
@@ -208,12 +208,12 @@ gen_port() {
 # 服务就绪等待（点动画），10s 超时；$1=服务名
 _wait_for_service() {
     local _svc="$1" i=0
-    printf "${C}  等待服务启动${Z}"
+    printf "${C}  等待服务启动${N}"
     while [ $i -lt 10 ]; do
-        rc-service "$_svc" status > /dev/null 2>&1 && { printf " ${G}就绪${Z}\n"; return 0; }
+        rc-service "$_svc" status > /dev/null 2>&1 && { printf " ${G}就绪${N}\n"; return 0; }
         printf "."; sleep 1; i=$((i+1))
     done
-    printf " ${Y}超时${Z}\n"; return 1
+    printf " ${Y}超时${N}\n"; return 1
 }
 
 # 服务控制  $1=动作(start/stop/enable/disable)  $2=服务名
@@ -335,9 +335,9 @@ _extract_with_rollback() {
 ###############################################################################
 
 # 键值行  $1=标签(调用方手动补空格对齐) $2=值 —— 规避中文宽度对齐问题
-_kv()   { printf "    ${D}%s${Z}   %s\n" "$1" "$2"; }
+_kv()   { printf "    ${D}%s${N}   %s\n" "$1" "$2"; }
 # Surge 节点块  $1=节点字符串
-_node() { printf "  ${D}───${Z} ${C}Surge 节点${Z} ${D}─────────────────────────────${Z}\n  ${C}%s${Z}\n" "$1"; }
+_node() { printf "  ${D}───${N} ${C}Surge 节点${N} ${D}─────────────────────────────${N}\n  ${C}%s${N}\n" "$1"; }
 
 ###############################################################################
 # §4  Snell
@@ -938,7 +938,7 @@ snell_configure() {
     _kv "端口" "$CONF_PORT"; _kv "PSK " "$CONF_PSK"
     hr; printf "\n"
     confirm "修改配置？" "no" || return
-    printf "\n${D}  回车保留当前值${Z}\n\n"
+    printf "\n${D}  回车保留当前值${N}\n\n"
     local new_port new_psk
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     ask "PSK"  "$CONF_PSK";  new_psk="$REPLY"
@@ -976,7 +976,7 @@ snell_update() {
         confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
-        ok "发现新版本: ${D}${old_ver}${Z} → ${G}${new_ver}${Z}"; printf "\n"
+        ok "发现新版本: ${D}${old_ver}${N} → ${G}${new_ver}${N}"; printf "\n"
     fi
     step "停止服务"; svc stop snell; ok "已停止"
     step "下载并部署"; ensure_pkgs unzip curl gcompat upx; snell_download "$new_ver"; SNELL_VERSION="$new_ver"
@@ -1034,7 +1034,7 @@ at_configure() {
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "no" || return
-    printf "\n${D}  回车保留当前值${Z}\n\n"
+    printf "\n${D}  回车保留当前值${N}\n\n"
     local new_port new_pass new_sni
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     ask "密码" "$CONF_PASS"; new_pass="$REPLY"
@@ -1076,7 +1076,7 @@ at_update() {
         confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
-        ok "发现新版本: ${D}${old_ver}${Z} → ${G}${AT_LATEST_VER}${Z}"; printf "\n"
+        ok "发现新版本: ${D}${old_ver}${N} → ${G}${AT_LATEST_VER}${N}"; printf "\n"
     fi
     step "停止服务"; svc stop anytls; ok "已停止"
     step "下载并部署"; ensure_pkgs unzip curl; at_download "$AT_LATEST_VER" "$AT_LATEST_SHA256"; AT_VERSION="$AT_LATEST_VER"
@@ -1133,7 +1133,7 @@ ss_configure() {
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "加密" "$SS_METHOD"
     hr; printf "\n"
     confirm "修改配置？" "no" || return
-    printf "\n${D}  回车保留当前值，输入 gen 自动生成新密钥${Z}\n\n"
+    printf "\n${D}  回车保留当前值，输入 gen 自动生成新密钥${N}\n\n"
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     ask "密码(base64)" "$CONF_PASS"; new_pass="$REPLY"
@@ -1233,7 +1233,7 @@ hy_configure() {
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "no" || return
-    printf "\n${D}  回车保留当前值${Z}\n\n"
+    printf "\n${D}  回车保留当前值${N}\n\n"
     local new_port new_pass new_sni
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     ask "密码" "$CONF_PASS"; new_pass="$REPLY"
@@ -1281,7 +1281,7 @@ hy_update() {
         confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
-        ok "发现新版本: ${D}${old_ver}${Z} → ${G}${HY_LATEST_VER}${Z}"; printf "\n"
+        ok "发现新版本: ${D}${old_ver}${N} → ${G}${HY_LATEST_VER}${N}"; printf "\n"
     fi
     step "停止服务"; svc stop hysteria; ok "已停止"
     step "下载并部署"; ensure_pkgs curl; hy_download "$HY_LATEST_VER"; HY_VERSION="$HY_LATEST_VER"
@@ -1340,7 +1340,7 @@ tj_configure() {
     _kv "端口" "$CONF_PORT"; _kv "密码" "$CONF_PASS"; _kv "SNI " "$CONF_SNI"
     hr; printf "\n"
     confirm "修改配置？" "no" || return
-    printf "\n${D}  回车保留当前值${Z}\n\n"
+    printf "\n${D}  回车保留当前值${N}\n\n"
     local new_port new_pass new_sni
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     ask "密码" "$CONF_PASS"; new_pass="$REPLY"
@@ -1388,7 +1388,7 @@ tj_update() {
         confirm "仍要重新安装？" "no" || { ok "已取消"; return; }
         printf "\n"
     else
-        ok "发现新版本: ${D}${old_ver}${Z} → ${G}${TJ_LATEST_VER}${Z}"; printf "\n"
+        ok "发现新版本: ${D}${old_ver}${N} → ${G}${TJ_LATEST_VER}${N}"; printf "\n"
     fi
     step "停止服务"; svc stop trojan-go; ok "已停止"
     step "下载并部署"; ensure_pkgs curl openssl unzip; tj_download "$TJ_LATEST_VER"; TJ_VERSION="$TJ_LATEST_VER"
@@ -1468,7 +1468,7 @@ s5_configure() {
     fi
     hr; printf "\n"
     confirm "修改配置？" "no" || return
-    printf "\n${D}  回车保留当前值${Z}\n\n"
+    printf "\n${D}  回车保留当前值${N}\n\n"
     local new_port new_pass
     ask "端口" "$CONF_PORT"; new_port="$REPLY"
     if [ "$CONF_MODE" = "username" ]; then
@@ -1542,10 +1542,10 @@ s5_uninstall() {
 # 状态行  $1=已装(0/1) $2=运行(0/1) $3=版本
 _status_line() {
     if [ "$1" = "1" ]; then
-        [ "$2" = "1" ] && printf "${G}● 运行中${Z}  ${D}%s${Z}" "$3" \
-                       || printf "${Y}● 已停止${Z}  ${D}%s${Z}" "$3"
+        [ "$2" = "1" ] && printf "${G}● 运行中${N}  ${D}%s${N}" "$3" \
+                       || printf "${Y}● 已停止${N}  ${D}%s${N}" "$3"
     else
-        printf "${D}○ 未安装${Z}"
+        printf "${D}○ 未安装${N}"
     fi
 }
 
@@ -1553,22 +1553,22 @@ _status_line() {
 _box() {
     printf "\n"
     if [ -n "$2" ]; then
-        printf "  ${C}╭───${Z} ${W}${B}%s${Z}  ${D}%s${Z}\n" "$1" "$2"
+        printf "  ${C}╭───${N} ${W}${B}%s${N}  ${D}%s${N}\n" "$1" "$2"
     else
-        printf "  ${C}╭───${Z} ${W}${B}%s${Z}\n" "$1"
+        printf "  ${C}╭───${N} ${W}${B}%s${N}\n" "$1"
     fi
 }
 
 # 服务子菜单的固定项
 _svc_menu_items() {
     printf "\n"
-    printf "    ${C}[1]${Z}  安装 / 重装\n"
-    printf "    ${C}[2]${Z}  配置修改\n"
-    printf "    ${C}[3]${Z}  更新版本\n"
-    printf "    ${C}[4]${Z}  卸载\n"
-    printf "    ${D}[0]  返回${Z}\n\n"
+    printf "    ${C}[1]${N}  安装 / 重装\n"
+    printf "    ${C}[2]${N}  配置修改\n"
+    printf "    ${C}[3]${N}  更新版本\n"
+    printf "    ${C}[4]${N}  卸载\n"
+    printf "    ${D}[0]  返回${N}\n\n"
     hr
-    printf "   ${C}❯${Z} 请选择 "
+    printf "   ${C}❯${N} 请选择 "
 }
 
 show_main_menu() {
@@ -1582,16 +1582,16 @@ show_main_menu() {
     at_is_installed    && ai=1;   at_is_running    && ar=1
     _box "代理服务管理" "Alpine Linux · OpenRC"
     hr
-    printf "    ${C}[1]${Z}  ${W}Snell${Z}        %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
-    printf "    ${C}[2]${Z}  ${W}Shadowsocks${Z}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
-    printf "    ${C}[3]${Z}  ${W}Hysteria2${Z}    %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
-    printf "    ${C}[4]${Z}  ${W}Trojan${Z}       %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
-    printf "    ${C}[5]${Z}  ${W}SOCKS5${Z}       %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
-    printf "    ${C}[6]${Z}  ${W}AnyTLS${Z}       %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
-    printf "    ${D}[0]  退出${Z}\n"
+    printf "    ${C}[1]${N}  ${W}Snell${N}        %b\n" "$(_status_line $si  $sr  "$(snell_get_version)")"
+    printf "    ${C}[2]${N}  ${W}Shadowsocks${N}  %b\n" "$(_status_line $ssi $ssr "$(ss_get_version)")"
+    printf "    ${C}[3]${N}  ${W}Hysteria2${N}    %b\n" "$(_status_line $hi  $hyr "$(hy_get_version)")"
+    printf "    ${C}[4]${N}  ${W}Trojan${N}       %b\n" "$(_status_line $ti  $tr  "$(tj_get_version)")"
+    printf "    ${C}[5]${N}  ${W}SOCKS5${N}       %b\n" "$(_status_line $s5i $s5r "$(s5_get_version)")"
+    printf "    ${C}[6]${N}  ${W}AnyTLS${N}       %b\n" "$(_status_line $ai  $ar  "$(at_get_version)")"
+    printf "    ${D}[0]  退出${N}\n"
     printf "\n"
     hr
-    printf "   ${C}❯${Z} 请选择 ${D}[0-6]${Z} "
+    printf "   ${C}❯${N} 请选择 ${D}[0-6]${N} "
     read -r CHOICE
 }
 
@@ -1606,8 +1606,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 snell_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SNELL_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${N}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${N}"
             fi
             _box "Snell Server" "管理" ;;
         ss)
@@ -1616,8 +1616,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 ss_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$SS_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${N}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${N}"
             fi
             _box "Shadowsocks Server" "管理" ;;
         hy)
@@ -1626,8 +1626,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 hy_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$HY_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${N}   SNI  ${C}${CONF_SNI}${N}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${N}"
             fi
             _box "Hysteria2 Server" "管理" ;;
         tj)
@@ -1636,8 +1636,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 tj_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$TJ_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${N}   SNI  ${C}${CONF_SNI}${N}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${N}"
             fi
             _box "Trojan Server" "管理" ;;
         s5)
@@ -1646,8 +1646,8 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 s5_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$S5_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${N}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${N}"
             fi
             _box "SOCKS5 Server" "管理" ;;
         at)
@@ -1656,14 +1656,14 @@ show_svc_menu() {
             if [ $inst -eq 1 ]; then
                 at_read_conf 2>/dev/null
                 ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' "$AT_INFO" 2>/dev/null | head -1)
-                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${Z}   SNI  ${C}${CONF_SNI}${Z}"
-                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${Z}"
+                [ -n "$CONF_PORT" ] && extra="端口   ${C}${CONF_PORT}${N}   SNI  ${C}${CONF_SNI}${N}"
+                [ -n "$ip" ]        && extra="${extra}   IP   ${C}${ip}${N}"
             fi
             _box "AnyTLS Server" "管理" ;;
     esac
     hr
-    printf "    ${D}状态${Z}   %b\n" "$(_status_line $inst $run "$ver")"
-    [ -n "$extra" ] && printf "    ${D}%b${Z}\n" "$extra"
+    printf "    ${D}状态${N}   %b\n" "$(_status_line $inst $run "$ver")"
+    [ -n "$extra" ] && printf "    ${D}%b${N}\n" "$extra"
     _svc_menu_items
     read -r CHOICE
 }
@@ -1689,7 +1689,7 @@ _run_submenu() {
             *_0)     return ;;
             *) warn "无效选项：${CHOICE}" ;;
         esac
-        printf "\n${D}  按 Enter 继续...${Z}"; read -r _
+        printf "\n${D}  按 Enter 继续...${N}"; read -r _
     done
 }
 
@@ -1697,7 +1697,7 @@ _run_submenu() {
 # §17  入口
 ###############################################################################
 
-trap 'printf "\n${R}  已中断${Z}\n"; exit 130' INT
+trap 'printf "\n${R}  已中断${N}\n"; exit 130' INT
 
 main() {
     check_root

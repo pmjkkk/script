@@ -15,7 +15,7 @@ R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
 C='\033[0;36m' W='\033[1;37m' B='\033[1m' D='\033[2m' N='\033[0m'
 
 # ---- 分隔线（2空格缩进 · dim 灰 · 46 长度）----
-line() { echo -e "${D}  ──────────────────────────────────────────────${N}"; }
+line() { printf "${D}  ──────────────────────────────────────────────${N}\n"; }
 
 # ---- 路径 ----
 BIN="/usr/local/bin/realm"
@@ -26,18 +26,18 @@ WORKDIR="/etc/realm"
 LAUNCHER="/etc/realm/launcher.sh"
 
 # ---- 工具函数 ----
-pause()              { echo -n "  按回车${1:-返回} ..."; read -r _; }
-ok()                 { echo -e "  ${G}✓ $*${N}"; }
-warn()               { echo -e "  ${Y}⚠ $*${N}"; }
-info()               { echo -e "  ${C}! $*${N}"; }
-die_msg()            { echo -e "  ${R}✗ $*${N}"; }
+pause()              { printf "  按回车${1:-返回} ..."; read -r _; }
+ok()                 { printf "  ${G}✓ $*${N}\n"; }
+warn()               { printf "  ${Y}⚠ $*${N}\n"; }
+info()               { printf "  ${C}! $*${N}\n"; }
+die_msg()            { printf "  ${R}✗ $*${N}\n"; }
 
 # confirm  $1=提示  $2=默认 yes|no（默认 no）—— 仅接受完整 yes/no
 confirm() {
     local msg="$1" def="${2:-no}" ans hint
     [ "$def" = "yes" ] && hint="${B}yes${N}/no" || hint="yes/${B}no${N}"
     while true; do
-        echo -ne "  ${Y}${msg}${N} [${hint}]: "
+        printf "  ${Y}${msg}${N} [${hint}]: "
         read -r ans
         [ -z "$ans" ] && ans="$def"
         case "$ans" in
@@ -49,15 +49,15 @@ confirm() {
 }
 _st=0; _st_n=0
 steps_init()         { _st_n="$1"; _st=0; }
-step()               { _st=$((_st+1)); echo -e "  ${C}[$_st/$_st_n]${N} $1"; }
+step()               { _st=$((_st+1)); printf "  ${C}[$_st/$_st_n]${N} $1\n"; }
 is_installed()       { [ -x "$BIN" ]; }
 is_running()         { pidof realm >/dev/null 2>&1; }
 is_service_enabled() { [ -f "$INITD" ] && rc-update show 2>/dev/null | grep -q "realm"; }
 
 # 统计转发规则数量（安全：grep -c 无匹配会返回非零退出码且输出0，
-# 直接用命令替换捕获其 stdout，不加 || echo 0 以免产生 "0\n0"）
+# 直接用命令替换捕获其 stdout，不加 || printf '0\n' 以免产生 "0\n0"）
 count_rules() {
-    [ -f "$CONFIG" ] || { echo 0; return; }
+    [ -f "$CONFIG" ] || { printf '0\n'; return; }
     grep -c '^\[\[endpoints\]\]' "$CONFIG" 2>/dev/null
 }
 
@@ -80,7 +80,7 @@ EOF
 backup_config() {
     local bak
     bak="${CONFIG}.bak.$(date +%Y%m%d_%H%M%S)"
-    cp "$CONFIG" "$bak" 2>/dev/null && echo "$bak"
+    cp "$CONFIG" "$bak" 2>/dev/null && printf '%s\n' "$bak"
 }
 
 # 执行服务动作并按期望状态报告结果
@@ -102,11 +102,11 @@ apply_config() {
 # ---- 检测架构 ----
 detect_arch() {
     case "$(uname -m)" in
-        x86_64)        echo "x86_64-unknown-linux-musl" ;;
-        aarch64|arm64) echo "aarch64-unknown-linux-musl" ;;
-        armv7l|armhf)  echo "armv7-unknown-linux-musleabi" ;;
-        armv6l|arm)    echo "arm-unknown-linux-musleabi" ;;
-        *)             echo ""; return 1 ;;
+        x86_64)        printf '%s\n' "x86_64-unknown-linux-musl" ;;
+        aarch64|arm64) printf '%s\n' "aarch64-unknown-linux-musl" ;;
+        armv7l|armhf)  printf '%s\n' "armv7-unknown-linux-musleabi" ;;
+        armv6l|arm)    printf '%s\n' "arm-unknown-linux-musleabi" ;;
+        *)             printf '\n'; return 1 ;;
     esac
 }
 
@@ -119,7 +119,7 @@ fetch_version() {
     [ -z "$ver" ] && ver=$(wget -q --tries=3 --wait=1 -O- \
         https://api.github.com/repos/zhboner/realm/releases/latest 2>/dev/null \
         | grep '"tag_name"' | cut -d'"' -f4)
-    echo "${ver:-unknown}"
+    printf '%s\n' "${ver:-unknown}"
 }
 
 # ---- 状态栏（供 banner 调用）----
@@ -132,16 +132,16 @@ status_line() {
     else
         s="${D}○ 未安装${N}"
     fi
-    echo "$s"
+    printf '%s\n' "$s"
 }
 
 # ---- 标题头（╭─── 装饰线，左对齐规避中文宽度问题）----
 _box() {
-    echo ''
+    printf '\n'
     if [ -n "$2" ]; then
-        echo -e "  ${C}╭───${N} ${W}${B}$1${N}  ${D}$2${N}"
+        printf "  ${C}╭───${N} ${W}${B}$1${N}  ${D}$2${N}\n"
     else
-        echo -e "  ${C}╭───${N} ${W}${B}$1${N}"
+        printf "  ${C}╭───${N} ${W}${B}$1${N}\n"
     fi
 }
 
@@ -150,19 +150,19 @@ banner() {
     clear
     _box "Realm 端口转发" "Alpine · OpenRC · v1.4"
     line
-    echo -e "    $(status_line)"
+    printf "    %b\n" "$(status_line)"
     line
-    echo ''
-    echo -e "   ${C}[1]${N}  安装 / 升级"
-    echo -e "   ${C}[2]${N}  规则管理"
-    echo -e "   ${C}[3]${N}  服务管理"
-    echo -e "   ${C}[4]${N}  状态 & 配置"
-    echo -e "   ${C}[5]${N}  查看日志"
-    echo -e "   ${C}[6]${N}  卸载"
-    echo -e "   ${D}[0]  退出${N}"
-    echo ''
+    printf '\n'
+    printf "   ${C}[1]${N}  安装 / 升级\n"
+    printf "   ${C}[2]${N}  规则管理\n"
+    printf "   ${C}[3]${N}  服务管理\n"
+    printf "   ${C}[4]${N}  状态 & 配置\n"
+    printf "   ${C}[5]${N}  查看日志\n"
+    printf "   ${C}[6]${N}  卸载\n"
+    printf "   ${D}[0]  退出${N}\n"
+    printf '\n'
     line
-    echo -ne "   ${C}❯${N} 请选择 ${D}[0-6]${N} "
+    printf "   ${C}❯${N} 请选择 ${D}[0-6]${N} "
 }
 
 # ---- 子菜单横幅（╭─── 风格，不依赖宽度计算）----
@@ -170,7 +170,7 @@ sub_banner() {
     clear
     _box "$1"
     line
-    echo ''
+    printf '\n'
 }
 
 # 内部：下载并安装 realm 二进制  $1=版本 $2=架构
@@ -223,16 +223,16 @@ install_realm() {
     latest_ver=$(fetch_version)
     if [ "$latest_ver" = "unknown" ]; then
         warn "无法获取版本号 (API 限流或网络问题)"
-        echo -ne "  请手动输入版本号 (如 v2.0.0，留空取消): "
+        printf "  请手动输入版本号 (如 v2.0.0，留空取消): "
         read -r latest_ver
         [ -z "$latest_ver" ] && { warn "已取消"; pause; return; }
     fi
     info "最新版本: $latest_ver"
-    echo ''
+    printf '\n'
 
     if is_installed; then
         confirm "确认安装/覆盖为 ${C}$latest_ver${N}？" "yes" || { warn "已取消"; pause; return; }
-        echo ''
+        printf '\n'
     fi
 
     steps_init 4
@@ -276,10 +276,10 @@ EOF
     apply_config
 
     line
-    echo ''
+    printf '\n'
     ok "安装完成！版本 ${latest_ver}"
     info "下一步: 规则管理 → 添加转发规则，服务管理 → 启动并设为自启"
-    echo ''
+    printf '\n'
     pause "返回菜单"
 }
 
@@ -288,13 +288,13 @@ _input_one_rule() {
     local listen_ip listen_port remote_addr
 
     # 监听 IP
-    echo -ne "  监听 IP   (回车默认 ${C}0.0.0.0${N}): "
+    printf "  监听 IP   (回车默认 ${C}0.0.0.0${N}): "
     read -r listen_ip
     listen_ip="${listen_ip:-0.0.0.0}"
 
     # 监听端口（含校验）
     while true; do
-        echo -ne "  监听端口  (留空取消): "
+        printf "  监听端口  (留空取消): "
         read -r listen_port
         [ -z "$listen_port" ] && return 1
         case "$listen_port" in
@@ -311,7 +311,7 @@ _input_one_rule() {
     done
 
     # 目标地址
-    echo -ne "  目标地址  (如 1.2.3.4:443，留空取消): "
+    printf "  目标地址  (如 1.2.3.4:443，留空取消): "
     read -r remote_addr
     [ -z "$remote_addr" ] && return 1
 
@@ -365,25 +365,25 @@ manage_rules() {
             local rc
             rc=$(count_rules)
             if [ "$rc" -gt 0 ]; then
-                echo -e "  ${W}当前规则 ($rc 条):${N}"
+                printf "  ${W}当前规则 ($rc 条):${N}\n"
                 _list_rules
-                echo ''
+                printf '\n'
             else
                 warn "暂无转发规则"
-                echo ''
+                printf '\n'
             fi
         else
             warn "配置文件不存在"
-            echo ''
+            printf '\n'
         fi
 
         line
-        echo -e "   ${C}[1]${N}  添加规则"
-        echo -e "   ${C}[2]${N}  删除规则"
-        echo -e "   ${C}[3]${N}  重置所有规则"
-        echo -e "   ${C}[4]${N}  备份 / 还原"
-        echo -e "   ${D}[0]  返回主菜单${N}\n"
-        echo -ne "   ${C}❯${N} 请选择 ${D}[0-4]${N} "
+        printf "   ${C}[1]${N}  添加规则\n"
+        printf "   ${C}[2]${N}  删除规则\n"
+        printf "   ${C}[3]${N}  重置所有规则\n"
+        printf "   ${C}[4]${N}  备份 / 还原\n"
+        printf "   ${D}[0]  返回主菜单${N}\n\n"
+        printf "   ${C}❯${N} 请选择 ${D}[0-4]${N} "
         read -r choice
 
         # 改动后若服务在运行会自动重启生效（各函数内部处理）
@@ -402,15 +402,15 @@ manage_rules() {
 _rule_add() {
     sub_banner "添加规则"
     require_config || return 1
-    echo -e "  在现有配置基础上追加规则，留空监听端口结束\n"
+    printf "  在现有配置基础上追加规则，留空监听端口结束\n\n"
     local added=0
     while true; do
-        [ "$added" -gt 0 ] && echo ''
-        echo -e "  ${W}── 规则 #$((added+1)) ──${N}"
+        [ "$added" -gt 0 ] && printf '\n'
+        printf "  ${W}── 规则 #%s ──${N}\n" "$((added+1))"
         if _input_one_rule; then added=$((added+1)); else break; fi
     done
     if [ "$added" -gt 0 ]; then
-        echo ''
+        printf '\n'
         ok "共添加 $added 条规则"
         apply_config
         pause "继续"; return 0
@@ -430,8 +430,8 @@ _rule_delete() {
     fi
 
     _list_rules
-    echo ''
-    echo -ne "  输入要删除的规则编号 (${R}0${N} 取消): "
+    printf '\n'
+    printf "  输入要删除的规则编号 (${R}0${N} 取消): "
     read -r choice
 
     case "$choice" in
@@ -453,31 +453,31 @@ _rule_reset() {
     require_config || return 1
 
     warn "危险操作: 将清空所有现有规则后重新录入"
-    echo -ne "  确认继续? 输入 ${R}yes${N} 确认 (其它取消): "
+    printf "  确认继续? 输入 ${R}yes${N} 确认 (其它取消): "
     read -r ans
     [ "$ans" != "yes" ] && { warn "已取消"; pause "继续"; return 1; }
-    echo ''
+    printf '\n'
 
     local bak
     bak=$(backup_config)
     info "已备份旧配置 → $(basename "$bak")"
-    echo ''
+    printf '\n'
 
     cfg_header
 
     local count=0
     while true; do
-        echo -e "  ${W}── 规则 #$((count+1)) ──${N}"
-        if _input_one_rule; then count=$((count+1)); echo ''; else break; fi
+        printf "  ${W}── 规则 #%s ──${N}\n" "$((count+1))"
+        if _input_one_rule; then count=$((count+1)); printf '\n'; else break; fi
     done
 
     if grep -q '\[\[endpoints\]\]' "$CONFIG" 2>/dev/null; then
-        echo ''
+        printf '\n'
         ok "共 $count 条规则已保存"
         apply_config
         pause "继续"; return 0
     fi
-    echo ''
+    printf '\n'
     warn "未录入任何规则，恢复备份"
     cp "$bak" "$CONFIG"
     pause "继续"; return 1
@@ -493,20 +493,20 @@ _rule_backup() {
         for f in "${CONFIG}.bak."*; do
             [ -f "$f" ] || continue
             i=$((i+1))
-            ts=$(echo "$f" | sed 's/.*\.bak\.//')
-            sz=$(wc -c < "$f" 2>/dev/null || echo 0)
+            ts=$(printf '%s\n' "$f" | sed 's/.*\.bak\.//')
+            sz=$(wc -c < "$f" 2>/dev/null || printf '0\n')
             # 时间戳 20240115_143052 → 2024-01-15 14:30:52
-            ts=$(echo "$ts" | sed 's/\(....\)\(..\)\(..\)_\(..\)\(..\)\(..\)/\1-\2-\3 \4:\5:\6/')
+            ts=$(printf '%s\n' "$ts" | sed 's/\(....\)\(..\)\(..\)_\(..\)\(..\)\(..\)/\1-\2-\3 \4:\5:\6/')
             printf "  %2d)  %s  (%s B)\n" "$i" "$ts" "$sz"
             eval "bak_$i=\"$f\""
         done
         [ "$i" -eq 0 ] && warn "暂无备份文件"
-        echo ''
+        printf '\n'
 
         line
-        echo -e "   ${C}m${N}  立即备份当前配置"
-        echo -e "   ${D}[0]  返回${N}\n"
-        echo -ne "   ${C}❯${N} 输入编号还原，或选项 "
+        printf "   ${C}m${N}  立即备份当前配置\n"
+        printf "   ${D}[0]  返回${N}\n\n"
+        printf "   ${C}❯${N} 输入编号还原，或选项 "
         read -r bc
 
         case "$bc" in
@@ -525,7 +525,7 @@ _rule_backup() {
                 [ "$bc" -lt 1 ] || [ "$bc" -gt "$i" ] && {
                     die_msg "编号超出范围"; sleep 1; continue; }
                 eval "target=\"\$bak_$bc\""
-                echo -e "\n  将还原: ${C}$(basename "$target")${N}"
+                printf "\n  将还原: ${C}%s${N}\n" "$(basename "$target")"
                 if confirm "确认还原? 当前配置会先自动备份" "no"; then
                     [ -f "$CONFIG" ] && backup_config >/dev/null
                     cp "$target" "$CONFIG"
@@ -549,21 +549,21 @@ manage_service() {
 
         # 实时状态显示
         if is_running; then
-            echo -e "  ${G}● 运行中${N}  ${D}PID: $(pidof realm | tr ' ' ',')${N}"
+            printf "  ${G}● 运行中${N}  ${D}PID: %s${N}\n" "$(pidof realm | tr ' ' ',')"
         else
-            echo -e "  ${R}○ 已停止${N}"
+            printf "  ${R}○ 已停止${N}\n"
         fi
         is_service_enabled \
-            && echo -e "  ${G}● 自启已启用${N}\n" \
-            || echo -e "  ${D}○ 自启未启用${N}\n"
+            && printf "  ${G}● 自启已启用${N}\n\n" \
+            || printf "  ${D}○ 自启未启用${N}\n\n"
 
         line
-        echo -e "   ${C}[1]${N}  启动"
-        echo -e "   ${C}[2]${N}  停止"
-        echo -e "   ${C}[3]${N}  重启"
-        echo -e "   ${C}[4]${N}  开机自启"
-        echo -e "   ${D}[0]  返回主菜单${N}\n"
-        echo -ne "   ${C}❯${N} 请选择 ${D}[0-4]${N} "
+        printf "   ${C}[1]${N}  启动\n"
+        printf "   ${C}[2]${N}  停止\n"
+        printf "   ${C}[3]${N}  重启\n"
+        printf "   ${C}[4]${N}  开机自启\n"
+        printf "   ${D}[0]  返回主菜单${N}\n\n"
+        printf "   ${C}❯${N} 请选择 ${D}[0-4]${N} "
         read -r choice
 
         case "$choice" in
@@ -619,18 +619,18 @@ check_status() {
 
     if ! is_installed; then
         warn "Realm 未安装"
-        echo ''
+        printf '\n'
         pause "返回菜单"; return
     fi
 
     local bin_ver
-    bin_ver=$($BIN --version 2>/dev/null | head -1 || echo "未知")
+    bin_ver=$($BIN --version 2>/dev/null | head -1 || printf '%s\n' "未知")
 
     # 版本 & 路径
     printf "  ${D}版本${N}  ${W}%s${N}\n" "$bin_ver"
     printf "  ${D}程序${N}  ${C}%s${N}\n" "$BIN"
     printf "  ${D}配置${N}  ${C}%s${N}\n" "$CONFIG"
-    echo ''
+    printf '\n'
 
     # 运行状态
     if is_running; then
@@ -643,7 +643,7 @@ check_status() {
         || printf "  ${D}○ 自启未启用${N}\n"
 
     # 转发规则
-    echo ''
+    printf '\n'
     if [ ! -f "$CONFIG" ]; then
         warn "配置文件不存在"
     else
@@ -651,7 +651,7 @@ check_status() {
         count=$(count_rules)
         printf "  ${D}规则${N}  ${W}%s${N} 条\n" "$count"
         if [ "$count" -gt 0 ]; then
-            echo ''
+            printf '\n'
             awk -v RS='' -v FS='\n' '
             /^\[\[endpoints\]\]/ {
                 listen = ""; remote = ""
@@ -663,7 +663,7 @@ check_status() {
             }' "$CONFIG"
 
             if command -v ss >/dev/null 2>&1; then
-                echo ''
+                printf '\n'
                 ports=$(grep '^listen' "$CONFIG" | sed 's/.*:\([0-9]*\)".*/\1/')
                 for p in $ports; do
                     ss -tlnp sport = :"$p" 2>/dev/null | grep -q realm \
@@ -678,7 +678,7 @@ check_status() {
         sed 's/^/  /' "$CONFIG"
         printf "${N}"
     fi
-    echo ''
+    printf '\n'
     pause "返回菜单"
 }
 
@@ -691,26 +691,26 @@ view_logs() {
 
         if [ ! -f "$LOGFILE" ]; then
             warn "日志文件不存在: $LOGFILE"
-            echo ''
+            printf '\n'
             pause; return
         fi
 
         local size lines
-        size=$(wc -c < "$LOGFILE" 2>/dev/null || echo 0)
+        size=$(wc -c < "$LOGFILE" 2>/dev/null || printf '0\n')
         if [ "$size" -eq 0 ]; then
             warn "日志文件为空"
-            echo ''
+            printf '\n'
         else
-            lines=$(wc -l < "$LOGFILE" 2>/dev/null || echo 0)
+            lines=$(wc -l < "$LOGFILE" 2>/dev/null || printf '0\n')
             printf "  ${C}%s${N}  ${D}%s 行 / %s 字节${N}\n\n" "$LOGFILE" "$lines" "$size"
-            echo -e "  ${D}最近 30 行:${N}"
+            printf "  ${D}最近 30 行:${N}\n"
             tail -30 "$LOGFILE" | sed 's/^/  /'
-            echo ''
+            printf '\n'
         fi
 
         line
-        echo -e "   ${C}[1]${N}  刷新    ${C}[2]${N}  清空    ${C}[3]${N}  实时跟踪    ${D}[0]  返回${N}\n"
-        echo -ne "   ${C}❯${N} 请选择 "
+        printf "   ${C}[1]${N}  刷新    ${C}[2]${N}  清空    ${C}[3]${N}  实时跟踪    ${D}[0]  返回${N}\n\n"
+        printf "   ${C}❯${N} 请选择 "
         read -r lc
 
         case "$lc" in
@@ -723,9 +723,9 @@ view_logs() {
                 fi
                 ;;
             3)
-                echo -e "${Y}  实时日志 (Ctrl+C 退出)${N}"
+                printf "${Y}  实时日志 (Ctrl+C 退出)${N}\n"
                 trap ':' INT; tail -f "$LOGFILE"; trap - INT
-                echo ''; pause "继续"
+                printf '\n'; pause "继续"
                 ;;
             0) return ;;
         esac
@@ -738,12 +738,12 @@ view_logs() {
 uninstall_realm() {
     sub_banner "卸载 Realm"
     warn "以下内容将被永久删除:"
-    echo -e "    ${D}• $BIN${N}"
-    echo -e "    ${D}• $WORKDIR  (含配置与所有备份)${N}"
-    echo -e "    ${D}• $INITD${N}"
-    echo -e "    ${D}• $LOGFILE${N}"
-    echo ''
-    echo -ne "  确认卸载? 输入 ${R}yes${N} 确认: "
+    printf "    ${D}• $BIN${N}\n"
+    printf "    ${D}• $WORKDIR  (含配置与所有备份)${N}\n"
+    printf "    ${D}• $INITD${N}\n"
+    printf "    ${D}• $LOGFILE${N}\n"
+    printf '\n'
+    printf "  确认卸载? 输入 ${R}yes${N} 确认: "
     read -r confirm
     [ "$confirm" != "yes" ] && { warn "已取消"; pause; return; }
 
@@ -752,9 +752,9 @@ uninstall_realm() {
     rm -f "$BIN" "$INITD" "$LOGFILE"
     rm -rf "$WORKDIR"
 
-    echo ''
+    printf '\n'
     ok "Realm 已完全卸载"
-    echo ''
+    printf '\n'
     pause "返回菜单"
 }
 
@@ -771,7 +771,7 @@ while true; do
         4) check_status ;;
         5) view_logs ;;
         6) uninstall_realm ;;
-        0) clear; echo -e "${C}再见 👋${N}"; exit 0 ;;
+        0) clear; printf "${C}再见 👋${N}\n"; exit 0 ;;
         *) die_msg "无效选项: $choice"; sleep 1 ;;
     esac
 done
